@@ -264,7 +264,9 @@ html, body {
   flex-shrink: 0;
 }
 
+.emp-info { display: flex; flex-direction: column; gap: 2px; }
 .emp-name { font-size: 16px; font-weight: 600; }
+.emp-dn   { font-size: 11px; color: var(--muted); }
 
 /* ========= 必要人数 サブタブ ========= */
 #req-subtab-bar {
@@ -448,16 +450,17 @@ html, body {
   width: 46px;
 }
 
-.print-cell { min-height: 16px; }
+.print-cell { min-height: 16px; vertical-align: middle; text-align: center; }
 
 .print-emp-tag {
-  display: inline-block;
+  display: block;
   padding: 1px 4px;
   border-radius: 3px;
   color: #fff;
   font-size: 10px;
-  margin: 1px;
+  margin: 1px auto;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .print-shortage { background: #fee2e2 !important; }

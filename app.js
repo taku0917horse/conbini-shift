@@ -205,9 +205,13 @@ function renderEmployeeList() {
   state.employees.forEach(emp => {
     const li = document.createElement('li');
     li.className = 'employee-item';
+    const dn = emp.displayName || emp.name.slice(0, 2);
     li.innerHTML = `
       <div class="emp-color-dot" style="background:${emp.color}"></div>
-      <span class="emp-name">${emp.name}</span>
+      <div class="emp-info">
+        <span class="emp-name">${emp.name}</span>
+        <span class="emp-dn">略称: ${dn}</span>
+      </div>
     `;
     li.addEventListener('click', () => openEmpModal(emp.id));
     ul.appendChild(li);
@@ -280,6 +284,37 @@ function renderShortageList() {
 
 // ========= 印刷テーブル生成 =========
 function buildPrintTable() {
+  // 各曜日ごとに24時間分のセル情報を事前計算（連続する同一勤務セットをrowspanで結合）
+  const colData = DAYS.map(day => {
+    const dayShifts = state.shifts.filter(s => s.day === day);
+
+    // 時間ごとの勤務者セット（比較キーと表示用リスト）
+    const slots = Array.from({ length: 24 }, (_, h) => {
+      const hMin = h * 60;
+      const ws   = dayShifts
+        .filter(s => s.startMin <= hMin && s.endMin > hMin)
+        .sort((a, b) => a.startMin - b.startMin);
+      return {
+        key:  ws.map(s => s.empId).sort().join(','),
+        emps: ws.map(s => state.employees.find(e => e.id === s.empId)).filter(Boolean),
+      };
+    });
+
+    // 同一セットが連続する区間をまとめてrowspanを計算
+    const cells = [];
+    let h = 0;
+    while (h < 24) {
+      const { key, emps } = slots[h];
+      let span = 1;
+      while (h + span < 24 && slots[h + span].key === key) span++;
+      cells.push({ emps, rowspan: span, startH: h, skip: false });
+      for (let j = 1; j < span; j++) cells.push({ skip: true });
+      h += span;
+    }
+    return { cells, day };
+  });
+
+  // テーブル組立
   const table = document.createElement('table');
   table.className = 'print-table';
 
@@ -295,33 +330,36 @@ function buildPrintTable() {
   const tbody = table.createTBody();
   for (let h = 0; h < 24; h++) {
     const realH = (h + 3) % 24;
-    const hMin  = h * 60;
     const tr    = tbody.insertRow();
     const tc    = tr.insertCell();
     tc.className   = 'time-col';
     tc.textContent = `${String(realH).padStart(2,'0')}:00`;
 
-    DAYS.forEach(day => {
-      const td        = tr.insertCell();
-      const required  = getRequiredCount(day, hMin);
-      const dayShifts = state.shifts.filter(s => s.day === day);
-      const working   = dayShifts.filter(s => s.startMin <= hMin && s.endMin > hMin);
+    colData.forEach(({ cells, day }) => {
+      const cell = cells[h];
+      if (cell.skip) return; // rowspan で上のセルがカバーするためスキップ
 
-      if (required > 0 && working.length === 0) {
-        td.className = 'print-empty print-cell';
-      } else if (required > 0 && working.length < required) {
-        td.className = 'print-shortage print-cell';
-      } else {
-        td.className = 'print-cell';
+      const td = tr.insertCell();
+      if (cell.rowspan > 1) td.rowSpan = cell.rowspan;
+
+      // スパン全体で不足チェック（最悪ケースでクラスを決定）
+      const cnt = cell.emps.length;
+      let cls = 'print-cell';
+      for (let hi = h; hi < h + cell.rowspan; hi++) {
+        const req = getRequiredCount(day, hi * 60);
+        if (req > 0 && cnt === 0)   { cls = 'print-empty print-cell'; break; }
+        if (req > 0 && cnt < req && cls !== 'print-empty print-cell') {
+          cls = 'print-shortage print-cell';
+        }
       }
+      td.className = cls;
 
-      working.forEach(s => {
-        const emp = state.employees.find(e => e.id === s.empId);
-        if (!emp) return;
+      // 従業員タグ（略称を使用）
+      cell.emps.forEach(emp => {
         const tag = document.createElement('span');
-        tag.className      = 'print-emp-tag';
+        tag.className        = 'print-emp-tag';
         tag.style.background = emp.color;
-        tag.textContent    = emp.name;
+        tag.textContent      = emp.displayName || emp.name.slice(0, 2);
         td.appendChild(tag);
       });
     });
@@ -450,17 +488,20 @@ function closeReqModal() {
 function openEmpModal(empId = null) {
   state.editingEmpId = empId;
   const nameIn = document.getElementById('emp-name');
+  const dnIn   = document.getElementById('emp-display-name');
   const delBtn = document.getElementById('btn-emp-delete');
 
   if (empId) {
     const emp = state.employees.find(e => e.id === empId);
     document.getElementById('modal-emp-title').textContent = '従業員編集';
     nameIn.value        = emp.name;
+    dnIn.value          = emp.displayName || '';
     state.selectedColor = emp.color;
     delBtn.classList.remove('hidden');
   } else {
     document.getElementById('modal-emp-title').textContent = '従業員追加';
     nameIn.value        = '';
+    dnIn.value          = '';
     state.selectedColor = COLORS[state.employees.length % COLORS.length];
     delBtn.classList.add('hidden');
   }
@@ -574,14 +615,16 @@ function init() {
   document.getElementById('btn-add-employee').addEventListener('click', () => openEmpModal());
 
   document.getElementById('btn-emp-save').addEventListener('click', () => {
-    const name = document.getElementById('emp-name').value.trim();
+    const name        = document.getElementById('emp-name').value.trim();
+    const displayName = document.getElementById('emp-display-name').value.trim();
     if (!name) return;
     if (state.editingEmpId) {
       const emp = state.employees.find(e => e.id === state.editingEmpId);
-      emp.name  = name;
-      emp.color = state.selectedColor;
+      emp.name        = name;
+      emp.displayName = displayName;
+      emp.color       = state.selectedColor;
     } else {
-      state.employees.push({ id: uid(), name, color: state.selectedColor });
+      state.employees.push({ id: uid(), name, displayName, color: state.selectedColor });
     }
     saveEmployees();
     closeEmpModal();
