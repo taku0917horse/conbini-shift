@@ -413,13 +413,52 @@ html, body {
   border-radius: 20px;
 }
 
-/* ========= 印刷プレビュー ========= */
-#view-print { overflow: hidden; }
+/* ========= 印刷・データビュー ========= */
+#print-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+}
 
 #print-preview {
-  flex: 1;
-  overflow: auto;
   padding: 12px;
+}
+
+#data-section {
+  padding: 16px;
+  border-top: 8px solid var(--bg);
+}
+
+.data-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 12px;
+  letter-spacing: .04em;
+}
+
+.data-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+}
+
+.data-card-body { flex: 1; }
+
+.data-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.data-card-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 .print-table {

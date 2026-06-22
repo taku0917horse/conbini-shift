@@ -63,10 +63,104 @@ const state = {
   reqDay:         '月',
 };
 
-function saveEmployees() { store.save('employees', state.employees); }
-function saveShifts()    { store.save('shifts', state.shifts); }
-function saveReqs()      { store.save('requirements', state.requirements); }
+function touchDataDate() { store.save('currentDataDate', new Date().toISOString()); }
+function saveEmployees() { store.save('employees', state.employees); touchDataDate(); }
+function saveShifts()    { store.save('shifts', state.shifts); touchDataDate(); }
+function saveReqs()      { store.save('requirements', state.requirements); touchDataDate(); }
 function uid()           { return Math.random().toString(36).slice(2, 10); }
+
+// ========= 日時フォーマット =========
+function formatDatetime(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// ========= エクスポート =========
+function exportData() {
+  const now     = new Date();
+  const payload = {
+    version:    1,
+    exportedAt: now.toISOString(),
+    data: {
+      employees:    state.employees,
+      shifts:       state.shifts,
+      requirements: state.requirements,
+    },
+  };
+
+  store.save('currentDataDate', now.toISOString());
+
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+
+  const p = n => String(n).padStart(2, '0');
+  const fname = `conbini-shift-${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}.json`;
+
+  const a = document.createElement('a');
+  a.href     = url;
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+// ========= インポート =========
+function handleImport(file) {
+  if (!file) return;
+  const reader = new FileReader();
+
+  reader.onload = e => {
+    let payload;
+    try {
+      payload = JSON.parse(e.target.result);
+    } catch {
+      alert('JSONの解析に失敗しました。ファイルが壊れているか、形式が正しくありません。');
+      return;
+    }
+
+    // バリデーション
+    if (payload.version !== 1) {
+      alert(`非対応のデータ形式です（version: ${payload.version ?? '不明'}）`);
+      return;
+    }
+    const d = payload.data;
+    if (!d || !Array.isArray(d.employees) || !Array.isArray(d.shifts) || !Array.isArray(d.requirements)) {
+      alert('データ構造が正しくありません。');
+      return;
+    }
+
+    // 確認ダイアログ（日時を併記）
+    const importedStr = payload.exportedAt
+      ? formatDatetime(new Date(payload.exportedAt))
+      : '（不明）';
+    const currentDateRaw = store.load('currentDataDate', null);
+    const currentStr = currentDateRaw
+      ? formatDatetime(new Date(currentDateRaw))
+      : '（不明）';
+
+    const ok = confirm(
+      `読み込むデータ: ${importedStr}\n現在のデータ: ${currentStr}\n\n現在のデータは上書きされます。よろしいですか?`
+    );
+    if (!ok) return;
+
+    // データ適用（saveXxx 経由にすると touchDataDate が走るため直接書き込み、最後に日時をセット）
+    state.employees    = d.employees;
+    state.shifts       = d.shifts;
+    state.requirements = d.requirements;
+    store.save('employees',    d.employees);
+    store.save('shifts',       d.shifts);
+    store.save('requirements', d.requirements);
+    store.save('currentDataDate', payload.exportedAt ?? new Date().toISOString());
+
+    switchView('shift');
+    alert('読み込みが完了しました');
+  };
+
+  reader.onerror = () => alert('ファイルの読み込みに失敗しました。');
+  reader.readAsText(file, 'utf-8');
+}
 
 // ========= 必要人数ロジック =========
 // 指定時刻（3:00起点分）における必要人数。重複ルールは最大値。未設定は0。
@@ -747,6 +841,19 @@ function init() {
   document.getElementById('btn-print').addEventListener('click', () => {
     renderPrintArea();
     window.print();
+  });
+
+  // === エクスポート ===
+  document.getElementById('btn-export').addEventListener('click', exportData);
+
+  // === インポート ===
+  document.getElementById('btn-import-trigger').addEventListener('click', () => {
+    document.getElementById('import-file').value = ''; // 同ファイル再選択を許可
+    document.getElementById('import-file').click();
+  });
+
+  document.getElementById('import-file').addEventListener('change', e => {
+    handleImport(e.target.files[0]);
   });
 
   renderShiftChart();

@@ -97,13 +97,33 @@
       </div>
     </div>
 
-    <!-- 印刷ビュー -->
+    <!-- 印刷・データビュー -->
     <div id="view-print" class="view">
       <header class="view-header">
-        <h1>週まとめ印刷</h1>
+        <h1>印刷・データ</h1>
         <button id="btn-print" class="btn-primary">印刷する</button>
       </header>
-      <div id="print-preview"></div>
+      <div id="print-scroll-area">
+        <div id="print-preview"></div>
+        <div id="data-section">
+          <div class="data-section-title">データ管理（バックアップ・共有）</div>
+          <div class="data-card">
+            <div class="data-card-body">
+              <div class="data-card-title">書き出し（エクスポート）</div>
+              <div class="data-card-desc">全データを JSON ファイルで書き出します。LINE などで送って共有できます。</div>
+            </div>
+            <button id="btn-export" class="btn-secondary">書き出し</button>
+          </div>
+          <div class="data-card">
+            <div class="data-card-body">
+              <div class="data-card-title">読み込み（インポート）</div>
+              <div class="data-card-desc">JSON ファイルを選択して現在のデータを復元します。上書き前に確認が入ります。</div>
+            </div>
+            <button id="btn-import-trigger" class="btn-secondary">読み込み</button>
+            <input type="file" id="import-file" accept=".json,application/json" style="display:none" />
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
