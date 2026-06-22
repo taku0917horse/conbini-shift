@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="シフト管理" />
+  <title>コンビニシフト管理</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ナビゲーション -->
+    <nav id="bottom-nav">
+      <button class="nav-btn active" data-view="shift">
+        <span class="nav-icon">📅</span>
+        <span class="nav-label">シフト</span>
+      </button>
+      <button class="nav-btn" data-view="employees">
+        <span class="nav-icon">👥</span>
+        <span class="nav-label">従業員</span>
+      </button>
+      <button class="nav-btn" data-view="requirements">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">必要人数</span>
+      </button>
+      <button class="nav-btn" data-view="print">
+        <span class="nav-icon">🖨️</span>
+        <span class="nav-label">印刷</span>
+      </button>
+    </nav>
+
+    <!-- シフトビュー -->
+    <div id="view-shift" class="view active">
+      <header class="view-header">
+        <h1>シフト表</h1>
+        <button id="btn-add-shift" class="btn-primary">＋勤務追加</button>
+      </header>
+      <div id="day-tabs">
+        <button class="day-tab active" data-day="月">月</button>
+        <button class="day-tab" data-day="火">火</button>
+        <button class="day-tab" data-day="水">水</button>
+        <button class="day-tab" data-day="木">木</button>
+        <button class="day-tab" data-day="金">金</button>
+        <button class="day-tab" data-day="土">土</button>
+        <button class="day-tab" data-day="日">日</button>
+      </div>
+      <div id="shift-chart-container">
+        <div id="time-labels"></div>
+        <div id="shift-lanes"></div>
+        <div id="requirement-overlay"></div>
+      </div>
+    </div>
+
+    <!-- 従業員管理ビュー -->
+    <div id="view-employees" class="view">
+      <header class="view-header">
+        <h1>従業員管理</h1>
+        <button id="btn-add-employee" class="btn-primary">＋追加</button>
+      </header>
+      <ul id="employee-list"></ul>
+    </div>
+
+    <!-- 必要人数ビュー -->
+    <div id="view-requirements" class="view">
+      <header class="view-header">
+        <h1>必要人数設定</h1>
+      </header>
+      <div id="req-controls">
+        <label>曜日：
+          <select id="req-day-select">
+            <option value="月">月</option>
+            <option value="火">火</option>
+            <option value="水">水</option>
+            <option value="木">木</option>
+            <option value="金">金</option>
+            <option value="土">土</option>
+            <option value="日">日</option>
+          </select>
+        </label>
+        <button id="btn-copy-all-days" class="btn-secondary">全曜日にコピー</button>
+      </div>
+      <div id="req-grid"></div>
+    </div>
+
+    <!-- 印刷ビュー（スクリーン用プレビュー） -->
+    <div id="view-print" class="view">
+      <header class="view-header">
+        <h1>週まとめ印刷</h1>
+        <button id="btn-print" class="btn-primary">印刷する</button>
+      </header>
+      <div id="print-preview"></div>
+    </div>
+  </div>
+
+  <!-- モーダル: 勤務追加/編集 -->
+  <div id="modal-shift" class="modal hidden">
+    <div class="modal-content">
+      <h2 id="modal-shift-title">勤務追加</h2>
+      <div class="form-group">
+        <label>従業員</label>
+        <select id="shift-emp-select"></select>
+      </div>
+      <div class="form-group">
+        <label>曜日</label>
+        <select id="shift-day-select">
+          <option value="月">月</option>
+          <option value="火">火</option>
+          <option value="水">水</option>
+          <option value="木">木</option>
+          <option value="金">金</option>
+          <option value="土">土</option>
+          <option value="日">日</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>プリセット</label>
+        <div id="preset-buttons"></div>
+      </div>
+      <div class="form-group">
+        <label>開始時刻</label>
+        <input type="time" id="shift-start" />
+      </div>
+      <div class="form-group">
+        <label>終了時刻（翌3:00の場合 03:00）</label>
+        <input type="time" id="shift-end" />
+      </div>
+      <div class="modal-actions">
+        <button id="btn-shift-save" class="btn-primary">保存</button>
+        <button id="btn-shift-delete" class="btn-danger hidden">削除</button>
+        <button id="btn-shift-cancel" class="btn-secondary">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: 従業員追加/編集 -->
+  <div id="modal-employee" class="modal hidden">
+    <div class="modal-content">
+      <h2 id="modal-emp-title">従業員追加</h2>
+      <div class="form-group">
+        <label>名前</label>
+        <input type="text" id="emp-name" placeholder="例: 田中" />
+      </div>
+      <div class="form-group">
+        <label>色</label>
+        <div id="color-picker"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-emp-save" class="btn-primary">保存</button>
+        <button id="btn-emp-delete" class="btn-danger hidden">削除</button>
+        <button id="btn-emp-cancel" class="btn-secondary">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 印刷専用テーブル（@media print で表示） -->
+  <div id="print-area"></div>
+
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js');
+    }
+  </script>
+</body>
+</html>
