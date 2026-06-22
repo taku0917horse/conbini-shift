@@ -113,10 +113,12 @@ function renderShiftChart() {
   // この曜日のシフトを取得
   const dayShifts = state.shifts.filter(s => s.day === day);
 
-  // レーン割り当て（重なり処理）
-  const laneEnds = []; // 各レーンの終了min
+  // レーン割り当て（開始時刻順に処理して空きレーンを再利用）
+  const laneEnds = []; // 各レーンの終了min（前の勤務）
+  const sorted = [...dayShifts].sort((a, b) => a.startMin - b.startMin);
 
-  const shiftLayouts = dayShifts.map(shift => {
+  const shiftLayouts = sorted.map(shift => {
+    // 終了時刻 <= 開始時刻 のレーンを再利用（境界は重なりとみなさない）
     let lane = laneEnds.findIndex(e => e <= shift.startMin);
     if (lane === -1) { lane = laneEnds.length; }
     laneEnds[lane] = shift.endMin;
