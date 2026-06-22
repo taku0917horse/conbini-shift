@@ -2,10 +2,9 @@
 
 // ========= 定数 =========
 const DAYS = ['月', '火', '水', '木', '金', '土', '日'];
-const HOUR_H = 48; // px per hour (matches CSS --hour-h)
+const HOUR_H = 48;
 const TOTAL_HOURS = 24;
 
-// 3:00起点の分→実時刻文字列
 function minToTime(m) {
   const total = (m + 3 * 60) % (24 * 60);
   const h = Math.floor(total / 60);
@@ -13,18 +12,15 @@ function minToTime(m) {
   return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
-// 実時刻文字列 "HH:MM" → 3:00起点の分
 function timeToMin(str) {
   const [h, m] = str.split(':').map(Number);
   return ((h - 3 + 24) % 24) * 60 + m;
 }
 
-// 3:00起点の分 → ピクセル位置
 function minToPx(m) {
   return (m / 60) * HOUR_H;
 }
 
-// プリセット定義 [ラベル, startTime, endTime]
 const PRESETS = [
   ['3-6',   '03:00', '06:00'],
   ['6-9',   '06:00', '09:00'],
@@ -34,7 +30,6 @@ const PRESETS = [
   ['22-3',  '22:00', '03:00'],
 ];
 
-// デフォルト色パレット
 const COLORS = [
   '#2563eb', '#16a34a', '#dc2626', '#9333ea',
   '#ea580c', '#0891b2', '#be185d', '#65a30d',
@@ -50,55 +45,94 @@ const store = {
 };
 
 // ========= 状態 =========
-let state = {
-  employees: store.load('employees', []),
-  shifts: store.load('shifts', []),
-  requirements: store.load('requirements', {}),
-  currentDay: '月',
+// requirements は配列: [{ id, day, startMin, endMin, count }]
+// 旧フォーマット（object）の場合はリセット
+let rawReqs = store.load('requirements', []);
+if (!Array.isArray(rawReqs)) rawReqs = [];
+
+const state = {
+  employees:     store.load('employees', []),
+  shifts:        store.load('shifts', []),
+  requirements:  rawReqs,
+  currentDay:    '月',
   editingShiftId: null,
-  editingEmpId: null,
-  selectedColor: COLORS[0],
-  reqDay: '月',
+  editingEmpId:   null,
+  editingReqId:   null,
+  reqModalCount:  2,
+  selectedColor:  COLORS[0],
+  reqDay:         '月',
 };
 
 function saveEmployees() { store.save('employees', state.employees); }
 function saveShifts()    { store.save('shifts', state.shifts); }
 function saveReqs()      { store.save('requirements', state.requirements); }
+function uid()           { return Math.random().toString(36).slice(2, 10); }
 
-function getReq(day, hour) {
-  return state.requirements[`${day}-${hour}`] ?? 1;
+// ========= 必要人数ロジック =========
+// 指定時刻（3:00起点分）における必要人数。重複ルールは最大値。未設定は0。
+function getRequiredCount(day, min) {
+  const rules = state.requirements.filter(
+    r => r.day === day && r.startMin <= min && r.endMin > min
+  );
+  return rules.length === 0 ? 0 : Math.max(...rules.map(r => r.count));
 }
 
-function setReq(day, hour, val) {
-  state.requirements[`${day}-${hour}`] = Math.max(0, val);
-  saveReqs();
-}
+// 曜日の不足区間をイベントベースで計算し、連続区間をマージして返す
+function computeShortages(day) {
+  const dayShifts = state.shifts.filter(s => s.day === day);
+  const dayReqs   = state.requirements.filter(r => r.day === day);
+  if (dayReqs.length === 0) return [];
 
-// ========= ID生成 =========
-function uid() { return Math.random().toString(36).slice(2, 10); }
+  // ブレークポイント = 全シフト・全ルールの開始/終了
+  const bp = new Set([0, 1440]);
+  dayShifts.forEach(s => { bp.add(s.startMin); bp.add(Math.min(s.endMin, 1440)); });
+  dayReqs.forEach(r   => { bp.add(r.startMin); bp.add(Math.min(r.endMin, 1440)); });
+
+  const points = [...bp].sort((a, b) => a - b);
+  const segs = [];
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const start = points[i];
+    const end   = points[i + 1];
+    const req   = getRequiredCount(day, start);
+    if (req === 0) continue;
+    const actual = dayShifts.filter(s => s.startMin <= start && s.endMin > start).length;
+    if (actual < req) segs.push({ startMin: start, endMin: end, short: req - actual });
+  }
+
+  // 隣接する不足区間をマージ（不足数は最大値を保持）
+  const merged = [];
+  for (const seg of segs) {
+    const last = merged[merged.length - 1];
+    if (last && last.endMin === seg.startMin) {
+      last.endMin = seg.endMin;
+      last.short  = Math.max(last.short, seg.short);
+    } else {
+      merged.push({ ...seg });
+    }
+  }
+  return merged;
+}
 
 // ========= シフトチャート描画 =========
 function renderShiftChart() {
-  const day = state.currentDay;
-  const labels = document.getElementById('time-labels');
-  const lanes  = document.getElementById('shift-lanes');
+  const day     = state.currentDay;
+  const labels  = document.getElementById('time-labels');
+  const lanes   = document.getElementById('shift-lanes');
   const overlay = document.getElementById('requirement-overlay');
 
-  // 時刻ラベル & 水平線
-  labels.innerHTML = '';
-  lanes.innerHTML  = '';
+  labels.innerHTML  = '';
+  lanes.innerHTML   = '';
   overlay.innerHTML = '';
+  lanes.style.minHeight = (HOUR_H * TOTAL_HOURS) + 'px';
 
-  const totalPx = HOUR_H * TOTAL_HOURS;
-  lanes.style.minHeight = totalPx + 'px';
-
+  // 時刻ラベル & 水平線
   for (let h = 0; h <= TOTAL_HOURS; h++) {
-    const y = h * HOUR_H;
+    const y     = h * HOUR_H;
     const realH = (h + 3) % 24;
-
-    const lbl = document.createElement('div');
-    lbl.className = 'time-label';
-    lbl.style.top = y + 'px';
+    const lbl   = document.createElement('div');
+    lbl.className   = 'time-label';
+    lbl.style.top   = y + 'px';
     lbl.textContent = `${String(realH).padStart(2, '0')}:00`;
     labels.appendChild(lbl);
 
@@ -110,62 +144,52 @@ function renderShiftChart() {
     }
   }
 
-  // この曜日のシフトを取得
+  // シフトバー（レーン割り当て: 開始時刻順・空きレーン再利用）
   const dayShifts = state.shifts.filter(s => s.day === day);
+  const laneEnds  = [];
+  const sorted    = [...dayShifts].sort((a, b) => a.startMin - b.startMin);
 
-  // レーン割り当て（開始時刻順に処理して空きレーンを再利用）
-  const laneEnds = []; // 各レーンの終了min（前の勤務）
-  const sorted = [...dayShifts].sort((a, b) => a.startMin - b.startMin);
-
-  const shiftLayouts = sorted.map(shift => {
-    // 終了時刻 <= 開始時刻 のレーンを再利用（境界は重なりとみなさない）
+  const layouts = sorted.map(shift => {
     let lane = laneEnds.findIndex(e => e <= shift.startMin);
-    if (lane === -1) { lane = laneEnds.length; }
+    if (lane === -1) lane = laneEnds.length;
     laneEnds[lane] = shift.endMin;
     return { shift, lane };
   });
 
   const numLanes = Math.max(1, laneEnds.length);
-  const LANE_W = 1 / numLanes;
+  const laneW    = 1 / numLanes;
 
-  shiftLayouts.forEach(({ shift, lane }) => {
+  layouts.forEach(({ shift, lane }) => {
     const emp = state.employees.find(e => e.id === shift.empId);
     if (!emp) return;
 
-    const top    = minToPx(shift.startMin);
-    const height = Math.max(20, minToPx(shift.endMin - shift.startMin));
-    const left   = lane * LANE_W * 100 + '%';
-    const width  = LANE_W * 100 - 1 + '%';
-
     const bar = document.createElement('div');
     bar.className = 'shift-bar';
-    bar.style.cssText = `
-      top: ${top}px;
-      height: ${height}px;
-      left: ${left};
-      width: ${width};
-      background: ${emp.color};
-    `;
+    bar.style.cssText = [
+      `top:${minToPx(shift.startMin)}px`,
+      `height:${Math.max(20, minToPx(shift.endMin - shift.startMin))}px`,
+      `left:${lane * laneW * 100}%`,
+      `width:${laneW * 100 - 1}%`,
+      `background:${emp.color}`,
+    ].join(';');
     bar.textContent = emp.name;
-    bar.dataset.shiftId = shift.id;
     bar.addEventListener('click', () => openShiftModal(shift.id));
     lanes.appendChild(bar);
   });
 
-  // 不足オーバーレイ
+  // 不足オーバーレイ（1時間単位）
   for (let h = 0; h < TOTAL_HOURS; h++) {
-    const required = getReq(day, (h + 3) % 24);
+    const hMin     = h * 60;
+    const required = getRequiredCount(day, hMin);
     if (required === 0) continue;
-
-    const hMin = h * 60;
     const count = dayShifts.filter(s => s.startMin <= hMin && s.endMin > hMin).length;
     if (count >= required) continue;
 
     const block = document.createElement('div');
-    block.className = 'req-block ' + (count === 0 ? 'empty' : 'shortage');
-    block.style.top    = (h * HOUR_H) + 'px';
+    block.className   = 'req-block ' + (count === 0 ? 'empty' : 'shortage');
+    block.style.top   = (h * HOUR_H) + 'px';
     block.style.height = HOUR_H + 'px';
-    block.textContent  = count === 0 ? '0人' : `あと${required - count}人`;
+    block.textContent = count === 0 ? '0人' : `あと${required - count}人`;
     overlay.appendChild(block);
   }
 }
@@ -175,7 +199,7 @@ function renderEmployeeList() {
   const ul = document.getElementById('employee-list');
   ul.innerHTML = '';
   if (state.employees.length === 0) {
-    ul.innerHTML = '<li style="padding:20px;text-align:center;color:#9ca3af">従業員を追加してください</li>';
+    ul.innerHTML = '<li class="empty-msg">従業員を追加してください</li>';
     return;
   }
   state.employees.forEach(emp => {
@@ -190,53 +214,68 @@ function renderEmployeeList() {
   });
 }
 
-// ========= 必要人数グリッド描画 =========
-const REQ_BANDS = [
-  { label: '3:00〜6:00',   hours: [3,4,5] },
-  { label: '6:00〜9:00',   hours: [6,7,8] },
-  { label: '9:00〜13:00',  hours: [9,10,11,12] },
-  { label: '13:00〜17:00', hours: [13,14,15,16] },
-  { label: '17:00〜22:00', hours: [17,18,19,20,21] },
-  { label: '22:00〜翌3:00',hours: [22,23,0,1,2] },
-];
+// ========= 必要人数ルール描画 =========
+function renderReqRules() {
+  const day  = state.reqDay;
+  const list = document.getElementById('req-rules-list');
+  list.innerHTML = '';
 
-function getBandReq(day, band) {
-  return getReq(day, band.hours[0]);
-}
+  const dayRules = state.requirements
+    .filter(r => r.day === day)
+    .sort((a, b) => a.startMin - b.startMin);
 
-function setBandReq(day, band, val) {
-  band.hours.forEach(h => setReq(day, h, val));
-}
+  if (dayRules.length === 0) {
+    list.innerHTML = '<div class="empty-msg">ルールなし。＋追加で作成してください</div>';
+    return;
+  }
 
-function renderReqGrid() {
-  const day = state.reqDay;
-  const grid = document.getElementById('req-grid');
-  grid.innerHTML = '';
-
-  REQ_BANDS.forEach(band => {
-    const current = getBandReq(day, band);
-    const row = document.createElement('div');
-    row.className = 'req-band';
-    row.innerHTML = `
-      <span class="req-band-label">${band.label}</span>
-      <div class="req-band-control">
-        <button class="req-dec">－</button>
-        <span class="req-count">${current}</span>
-        <button class="req-inc">＋</button>
-      </div>
+  dayRules.forEach(rule => {
+    const item = document.createElement('div');
+    item.className = 'req-rule-item';
+    item.innerHTML = `
+      <div class="req-rule-time">${minToTime(rule.startMin)}〜${minToTime(rule.endMin)}</div>
+      <div class="req-rule-right"><span class="req-rule-count">${rule.count}</span>人</div>
     `;
-    row.querySelector('.req-dec').addEventListener('click', () => {
-      setBandReq(day, band, getBandReq(day, band) - 1);
-      renderReqGrid();
-      renderShiftChart();
-    });
-    row.querySelector('.req-inc').addEventListener('click', () => {
-      setBandReq(day, band, getBandReq(day, band) + 1);
-      renderReqGrid();
-      renderShiftChart();
-    });
-    grid.appendChild(row);
+    item.addEventListener('click', () => openReqModal(rule.id));
+    list.appendChild(item);
   });
+}
+
+// ========= 不足リスト描画 =========
+function renderShortageList() {
+  const list = document.getElementById('shortage-list');
+  list.innerHTML = '';
+
+  let hasAny = false;
+  DAYS.forEach(day => {
+    const shortages = computeShortages(day);
+    if (shortages.length === 0) return;
+    hasAny = true;
+
+    const section = document.createElement('div');
+    section.className = 'shortage-section';
+
+    const title = document.createElement('div');
+    title.className   = 'shortage-day-title';
+    title.textContent = day + '曜日';
+    section.appendChild(title);
+
+    shortages.forEach(s => {
+      const row = document.createElement('div');
+      row.className = 'shortage-row';
+      row.innerHTML = `
+        <span class="shortage-time">${minToTime(s.startMin)}〜${minToTime(s.endMin)}</span>
+        <span class="shortage-badge">あと${s.short}人</span>
+      `;
+      section.appendChild(row);
+    });
+
+    list.appendChild(section);
+  });
+
+  if (!hasAny) {
+    list.innerHTML = '<div class="empty-msg" style="padding-top:48px">不足なし</div>';
+  }
 }
 
 // ========= 印刷テーブル生成 =========
@@ -244,7 +283,6 @@ function buildPrintTable() {
   const table = document.createElement('table');
   table.className = 'print-table';
 
-  // ヘッダ行
   const thead = table.createTHead();
   const hrow  = thead.insertRow();
   hrow.insertCell().textContent = '時間';
@@ -254,26 +292,24 @@ function buildPrintTable() {
     hrow.appendChild(th);
   });
 
-  // 時間行（3:00〜翌3:00, 1時間ごと）
   const tbody = table.createTBody();
   for (let h = 0; h < 24; h++) {
     const realH = (h + 3) % 24;
     const hMin  = h * 60;
-    const tr = tbody.insertRow();
-
-    const tc = tr.insertCell();
-    tc.className = 'time-col';
+    const tr    = tbody.insertRow();
+    const tc    = tr.insertCell();
+    tc.className   = 'time-col';
     tc.textContent = `${String(realH).padStart(2,'0')}:00`;
 
     DAYS.forEach(day => {
-      const td = tr.insertCell();
-      const required = getReq(day, realH);
+      const td        = tr.insertCell();
+      const required  = getRequiredCount(day, hMin);
       const dayShifts = state.shifts.filter(s => s.day === day);
       const working   = dayShifts.filter(s => s.startMin <= hMin && s.endMin > hMin);
 
-      if (working.length === 0 && required > 0) {
+      if (required > 0 && working.length === 0) {
         td.className = 'print-empty print-cell';
-      } else if (working.length < required) {
+      } else if (required > 0 && working.length < required) {
         td.className = 'print-shortage print-cell';
       } else {
         td.className = 'print-cell';
@@ -283,14 +319,13 @@ function buildPrintTable() {
         const emp = state.employees.find(e => e.id === s.empId);
         if (!emp) return;
         const tag = document.createElement('span');
-        tag.className = 'print-emp-tag';
+        tag.className      = 'print-emp-tag';
         tag.style.background = emp.color;
-        tag.textContent = emp.name;
+        tag.textContent    = emp.name;
         td.appendChild(tag);
       });
     });
   }
-
   return table;
 }
 
@@ -306,7 +341,7 @@ function renderPrintArea() {
   area.appendChild(buildPrintTable());
 }
 
-// ========= 曜日トグルボタン描画 =========
+// ========= 曜日トグルボタン =========
 function renderDayToggles(selectedDays, readonly = false) {
   const wrap = document.getElementById('day-toggle-buttons');
   const hint = document.getElementById('day-toggle-hint');
@@ -315,13 +350,13 @@ function renderDayToggles(selectedDays, readonly = false) {
 
   DAYS.forEach(d => {
     const btn = document.createElement('button');
-    btn.type = 'button';
+    btn.type      = 'button';
     btn.className = 'day-toggle-btn' + (selectedDays.includes(d) ? ' on' : '');
     btn.textContent = d;
     if (!readonly) {
       btn.addEventListener('click', () => {
         btn.classList.toggle('on');
-        updateSaveBtnState();
+        updateShiftSaveBtnState();
       });
     } else {
       btn.style.cursor = 'default';
@@ -334,56 +369,48 @@ function getSelectedDays() {
   return [...document.querySelectorAll('.day-toggle-btn.on')].map(b => b.textContent);
 }
 
-function updateSaveBtnState() {
-  const saveBtn = document.getElementById('btn-shift-save');
-  saveBtn.disabled = getSelectedDays().length === 0;
-  saveBtn.style.opacity = saveBtn.disabled ? '0.4' : '';
+function updateShiftSaveBtnState() {
+  const btn = document.getElementById('btn-shift-save');
+  btn.disabled     = getSelectedDays().length === 0;
+  btn.style.opacity = btn.disabled ? '0.4' : '';
 }
 
 // ========= モーダル: 勤務 =========
 function openShiftModal(shiftId = null) {
-  const modal   = document.getElementById('modal-shift');
-  const title   = document.getElementById('modal-shift-title');
+  state.editingShiftId = shiftId;
   const empSel  = document.getElementById('shift-emp-select');
   const startIn = document.getElementById('shift-start');
   const endIn   = document.getElementById('shift-end');
   const delBtn  = document.getElementById('btn-shift-delete');
 
-  state.editingShiftId = shiftId;
-
-  // 従業員セレクト更新
-  empSel.innerHTML = '';
-  if (state.employees.length === 0) {
-    empSel.innerHTML = '<option value="">先に従業員を追加してください</option>';
-  } else {
-    state.employees.forEach(emp => {
-      const opt = document.createElement('option');
-      opt.value = emp.id;
-      opt.textContent = emp.name;
-      empSel.appendChild(opt);
-    });
-  }
+  empSel.innerHTML = state.employees.length === 0
+    ? '<option value="">先に従業員を追加してください</option>'
+    : '';
+  state.employees.forEach(emp => {
+    const opt = document.createElement('option');
+    opt.value = emp.id;
+    opt.textContent = emp.name;
+    empSel.appendChild(opt);
+  });
 
   if (shiftId) {
-    // 編集: 1曜日のみ（読み取り専用トグル）
     const shift = state.shifts.find(s => s.id === shiftId);
-    title.textContent = '勤務編集';
+    document.getElementById('modal-shift-title').textContent = '勤務編集';
     empSel.value  = shift.empId;
     startIn.value = minToTime(shift.startMin);
     endIn.value   = minToTime(shift.endMin);
     delBtn.classList.remove('hidden');
     renderDayToggles([shift.day], true);
   } else {
-    // 新規追加: 現在の曜日をデフォルト選択
-    title.textContent = '勤務追加';
+    document.getElementById('modal-shift-title').textContent = '勤務追加';
     startIn.value = '09:00';
     endIn.value   = '17:00';
     delBtn.classList.add('hidden');
     renderDayToggles([state.currentDay], false);
   }
 
-  updateSaveBtnState();
-  modal.classList.remove('hidden');
+  updateShiftSaveBtnState();
+  document.getElementById('modal-shift').classList.remove('hidden');
 }
 
 function closeShiftModal() {
@@ -391,30 +418,54 @@ function closeShiftModal() {
   state.editingShiftId = null;
 }
 
+// ========= モーダル: 必要人数ルール =========
+function openReqModal(ruleId = null) {
+  state.editingReqId = ruleId;
+  const delBtn = document.getElementById('btn-req-delete');
+
+  if (ruleId) {
+    const rule = state.requirements.find(r => r.id === ruleId);
+    document.getElementById('modal-req-title').textContent = 'ルール編集';
+    document.getElementById('req-start').value = minToTime(rule.startMin);
+    document.getElementById('req-end').value   = minToTime(rule.endMin);
+    state.reqModalCount = rule.count;
+    delBtn.classList.remove('hidden');
+  } else {
+    document.getElementById('modal-req-title').textContent = 'ルール追加';
+    document.getElementById('req-start').value = '09:00';
+    document.getElementById('req-end').value   = '17:00';
+    state.reqModalCount = 2;
+    delBtn.classList.add('hidden');
+  }
+  document.getElementById('req-count-val').textContent = state.reqModalCount;
+  document.getElementById('modal-req').classList.remove('hidden');
+}
+
+function closeReqModal() {
+  document.getElementById('modal-req').classList.add('hidden');
+  state.editingReqId = null;
+}
+
 // ========= モーダル: 従業員 =========
 function openEmpModal(empId = null) {
-  const modal  = document.getElementById('modal-employee');
-  const title  = document.getElementById('modal-emp-title');
+  state.editingEmpId = empId;
   const nameIn = document.getElementById('emp-name');
   const delBtn = document.getElementById('btn-emp-delete');
 
-  state.editingEmpId = empId;
-
   if (empId) {
     const emp = state.employees.find(e => e.id === empId);
-    title.textContent = '従業員編集';
-    nameIn.value = emp.name;
+    document.getElementById('modal-emp-title').textContent = '従業員編集';
+    nameIn.value        = emp.name;
     state.selectedColor = emp.color;
     delBtn.classList.remove('hidden');
   } else {
-    title.textContent = '従業員追加';
-    nameIn.value = '';
+    document.getElementById('modal-emp-title').textContent = '従業員追加';
+    nameIn.value        = '';
     state.selectedColor = COLORS[state.employees.length % COLORS.length];
     delBtn.classList.add('hidden');
   }
-
   renderColorPicker();
-  modal.classList.remove('hidden');
+  document.getElementById('modal-employee').classList.remove('hidden');
 }
 
 function closeEmpModal() {
@@ -427,12 +478,9 @@ function renderColorPicker() {
   picker.innerHTML = '';
   COLORS.forEach(c => {
     const sw = document.createElement('div');
-    sw.className = 'color-swatch' + (c === state.selectedColor ? ' selected' : '');
+    sw.className  = 'color-swatch' + (c === state.selectedColor ? ' selected' : '');
     sw.style.background = c;
-    sw.addEventListener('click', () => {
-      state.selectedColor = c;
-      renderColorPicker();
-    });
+    sw.addEventListener('click', () => { state.selectedColor = c; renderColorPicker(); });
     picker.appendChild(sw);
   });
 }
@@ -447,13 +495,13 @@ function switchView(name) {
 
   if (name === 'shift')        renderShiftChart();
   if (name === 'employees')    renderEmployeeList();
-  if (name === 'requirements') renderReqGrid();
+  if (name === 'requirements') renderReqRules();
   if (name === 'print')        renderPrintPreview();
 }
 
 // ========= 初期化 =========
 function init() {
-  // ナビボタン
+  // ナビ
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
@@ -468,16 +516,16 @@ function init() {
     });
   });
 
-  // ＋勤務追加
+  // === 勤務モーダル ===
   document.getElementById('btn-add-shift').addEventListener('click', () => openShiftModal());
 
-  // プリセットボタン生成
+  // シフトプリセット
   const presetWrap = document.getElementById('preset-buttons');
   PRESETS.forEach(([label, start, end]) => {
     const btn = document.createElement('button');
-    btn.className = 'preset-btn';
+    btn.className   = 'preset-btn';
     btn.textContent = label;
-    btn.type = 'button';
+    btn.type        = 'button';
     btn.addEventListener('click', () => {
       document.getElementById('shift-start').value = start;
       document.getElementById('shift-end').value   = end;
@@ -485,37 +533,29 @@ function init() {
     presetWrap.appendChild(btn);
   });
 
-  // 勤務保存
   document.getElementById('btn-shift-save').addEventListener('click', () => {
     const empId    = document.getElementById('shift-emp-select').value;
     const startStr = document.getElementById('shift-start').value;
     const endStr   = document.getElementById('shift-end').value;
-
     if (!empId || !startStr || !endStr) return;
 
     const startMin = timeToMin(startStr);
     let endMin     = timeToMin(endStr);
-    if (endMin <= startMin) endMin += 1440; // 翌日越えを補正
+    if (endMin <= startMin) endMin += 1440;
 
     if (state.editingShiftId) {
-      // 編集: 1件だけ更新（曜日はそのまま）
       const s = state.shifts.find(x => x.id === state.editingShiftId);
       Object.assign(s, { empId, startMin, endMin });
     } else {
-      // 新規: 選択した全曜日に1件ずつ追加
       const days = getSelectedDays();
       if (days.length === 0) return;
-      days.forEach(day => {
-        state.shifts.push({ id: uid(), empId, day, startMin, endMin });
-      });
+      days.forEach(day => state.shifts.push({ id: uid(), empId, day, startMin, endMin }));
     }
-
     saveShifts();
     closeShiftModal();
     renderShiftChart();
   });
 
-  // 勤務削除
   document.getElementById('btn-shift-delete').addEventListener('click', () => {
     if (!state.editingShiftId) return;
     state.shifts = state.shifts.filter(s => s.id !== state.editingShiftId);
@@ -524,17 +564,18 @@ function init() {
     renderShiftChart();
   });
 
-  // 勤務キャンセル
   document.getElementById('btn-shift-cancel').addEventListener('click', closeShiftModal);
 
-  // ＋従業員追加
+  document.getElementById('modal-shift').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeShiftModal();
+  });
+
+  // === 従業員モーダル ===
   document.getElementById('btn-add-employee').addEventListener('click', () => openEmpModal());
 
-  // 従業員保存
   document.getElementById('btn-emp-save').addEventListener('click', () => {
     const name = document.getElementById('emp-name').value.trim();
     if (!name) return;
-
     if (state.editingEmpId) {
       const emp = state.employees.find(e => e.id === state.editingEmpId);
       emp.name  = name;
@@ -542,13 +583,11 @@ function init() {
     } else {
       state.employees.push({ id: uid(), name, color: state.selectedColor });
     }
-
     saveEmployees();
     closeEmpModal();
     renderEmployeeList();
   });
 
-  // 従業員削除
   document.getElementById('btn-emp-delete').addEventListener('click', () => {
     if (!state.editingEmpId) return;
     state.employees = state.employees.filter(e => e.id !== state.editingEmpId);
@@ -559,43 +598,114 @@ function init() {
     renderEmployeeList();
   });
 
-  // 従業員キャンセル
   document.getElementById('btn-emp-cancel').addEventListener('click', closeEmpModal);
 
-  // 必要人数: 曜日切り替え
+  document.getElementById('modal-employee').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeEmpModal();
+  });
+
+  // === 必要人数サブタブ ===
+  document.querySelectorAll('.req-subtab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.req-subtab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.req-subview').forEach(v => v.classList.add('hidden'));
+      document.getElementById(`req-sub-${btn.dataset.subtab}`).classList.remove('hidden');
+      if (btn.dataset.subtab === 'shortage') renderShortageList();
+      if (btn.dataset.subtab === 'rules')    renderReqRules();
+    });
+  });
+
   document.getElementById('req-day-select').addEventListener('change', e => {
     state.reqDay = e.target.value;
-    renderReqGrid();
+    renderReqRules();
   });
 
-  // 全曜日コピー
+  // 全日コピー
   document.getElementById('btn-copy-all-days').addEventListener('click', () => {
-    const day = state.reqDay;
-    REQ_BANDS.forEach(band => {
-      const val = getBandReq(day, band);
-      DAYS.forEach(d => {
-        if (d !== day) setBandReq(d, band, val);
-      });
+    const day      = state.reqDay;
+    const dayRules = state.requirements.filter(r => r.day === day);
+    if (!confirm(`${day}曜日のルールを全曜日にコピーします。\n他の曜日の設定は上書きされます。`)) return;
+    state.requirements = state.requirements.filter(r => r.day === day);
+    DAYS.forEach(d => {
+      if (d === day) return;
+      dayRules.forEach(rule => state.requirements.push({ ...rule, id: uid(), day: d }));
     });
     saveReqs();
-    alert('全曜日にコピーしました');
+    renderShiftChart();
   });
 
-  // 印刷ボタン
+  // === ルールモーダル ===
+  document.getElementById('btn-add-req').addEventListener('click', () => openReqModal());
+
+  // ルールプリセット
+  const reqPresetWrap = document.getElementById('req-preset-buttons');
+  PRESETS.forEach(([label, start, end]) => {
+    const btn = document.createElement('button');
+    btn.className   = 'preset-btn';
+    btn.textContent = label;
+    btn.type        = 'button';
+    btn.addEventListener('click', () => {
+      document.getElementById('req-start').value = start;
+      document.getElementById('req-end').value   = end;
+    });
+    reqPresetWrap.appendChild(btn);
+  });
+
+  document.getElementById('req-count-dec').addEventListener('click', () => {
+    state.reqModalCount = Math.max(0, state.reqModalCount - 1);
+    document.getElementById('req-count-val').textContent = state.reqModalCount;
+  });
+  document.getElementById('req-count-inc').addEventListener('click', () => {
+    state.reqModalCount++;
+    document.getElementById('req-count-val').textContent = state.reqModalCount;
+  });
+
+  document.getElementById('btn-req-save').addEventListener('click', () => {
+    const startStr = document.getElementById('req-start').value;
+    const endStr   = document.getElementById('req-end').value;
+    if (!startStr || !endStr) return;
+
+    const startMin = timeToMin(startStr);
+    let endMin     = timeToMin(endStr);
+    if (endMin <= startMin) endMin += 1440;
+
+    if (state.editingReqId) {
+      const rule = state.requirements.find(r => r.id === state.editingReqId);
+      Object.assign(rule, { startMin, endMin, count: state.reqModalCount });
+    } else {
+      state.requirements.push({
+        id: uid(), day: state.reqDay,
+        startMin, endMin, count: state.reqModalCount,
+      });
+    }
+    saveReqs();
+    closeReqModal();
+    renderReqRules();
+    renderShiftChart();
+  });
+
+  document.getElementById('btn-req-delete').addEventListener('click', () => {
+    if (!state.editingReqId) return;
+    state.requirements = state.requirements.filter(r => r.id !== state.editingReqId);
+    saveReqs();
+    closeReqModal();
+    renderReqRules();
+    renderShiftChart();
+  });
+
+  document.getElementById('btn-req-cancel').addEventListener('click', closeReqModal);
+
+  document.getElementById('modal-req').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeReqModal();
+  });
+
+  // === 印刷 ===
   document.getElementById('btn-print').addEventListener('click', () => {
     renderPrintArea();
     window.print();
   });
 
-  // モーダル外クリックで閉じる
-  document.getElementById('modal-shift').addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeShiftModal();
-  });
-  document.getElementById('modal-employee').addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeEmpModal();
-  });
-
-  // 初期描画
   renderShiftChart();
 }
 
