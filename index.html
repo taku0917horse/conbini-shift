@@ -104,17 +104,9 @@
         <label>従業員</label>
         <select id="shift-emp-select"></select>
       </div>
-      <div class="form-group">
-        <label>曜日</label>
-        <select id="shift-day-select">
-          <option value="月">月</option>
-          <option value="火">火</option>
-          <option value="水">水</option>
-          <option value="木">木</option>
-          <option value="金">金</option>
-          <option value="土">土</option>
-          <option value="日">日</option>
-        </select>
+      <div class="form-group" id="day-toggle-group">
+        <label>曜日 <span id="day-toggle-hint" class="day-toggle-hint">（複数選択可）</span></label>
+        <div id="day-toggle-buttons"></div>
       </div>
       <div class="form-group">
         <label>プリセット</label>

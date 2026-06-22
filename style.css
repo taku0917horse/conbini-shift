@@ -457,6 +457,40 @@ html, body {
 
 .preset-btn:active { background: var(--primary); color: #fff; }
 
+/* 曜日トグルボタン */
+#day-toggle-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.day-toggle-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.day-toggle-btn.on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.day-toggle-hint {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
 #color-picker {
   display: flex;
   flex-wrap: wrap;

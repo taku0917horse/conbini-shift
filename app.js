@@ -306,12 +306,45 @@ function renderPrintArea() {
   area.appendChild(buildPrintTable());
 }
 
+// ========= 曜日トグルボタン描画 =========
+function renderDayToggles(selectedDays, readonly = false) {
+  const wrap = document.getElementById('day-toggle-buttons');
+  const hint = document.getElementById('day-toggle-hint');
+  wrap.innerHTML = '';
+  hint.style.display = readonly ? 'none' : '';
+
+  DAYS.forEach(d => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'day-toggle-btn' + (selectedDays.includes(d) ? ' on' : '');
+    btn.textContent = d;
+    if (!readonly) {
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('on');
+        updateSaveBtnState();
+      });
+    } else {
+      btn.style.cursor = 'default';
+    }
+    wrap.appendChild(btn);
+  });
+}
+
+function getSelectedDays() {
+  return [...document.querySelectorAll('.day-toggle-btn.on')].map(b => b.textContent);
+}
+
+function updateSaveBtnState() {
+  const saveBtn = document.getElementById('btn-shift-save');
+  saveBtn.disabled = getSelectedDays().length === 0;
+  saveBtn.style.opacity = saveBtn.disabled ? '0.4' : '';
+}
+
 // ========= モーダル: 勤務 =========
 function openShiftModal(shiftId = null) {
-  const modal = document.getElementById('modal-shift');
-  const title = document.getElementById('modal-shift-title');
-  const empSel = document.getElementById('shift-emp-select');
-  const daySel = document.getElementById('shift-day-select');
+  const modal   = document.getElementById('modal-shift');
+  const title   = document.getElementById('modal-shift-title');
+  const empSel  = document.getElementById('shift-emp-select');
   const startIn = document.getElementById('shift-start');
   const endIn   = document.getElementById('shift-end');
   const delBtn  = document.getElementById('btn-shift-delete');
@@ -332,21 +365,24 @@ function openShiftModal(shiftId = null) {
   }
 
   if (shiftId) {
+    // 編集: 1曜日のみ（読み取り専用トグル）
     const shift = state.shifts.find(s => s.id === shiftId);
     title.textContent = '勤務編集';
-    empSel.value = shift.empId;
-    daySel.value = shift.day;
+    empSel.value  = shift.empId;
     startIn.value = minToTime(shift.startMin);
     endIn.value   = minToTime(shift.endMin);
     delBtn.classList.remove('hidden');
+    renderDayToggles([shift.day], true);
   } else {
+    // 新規追加: 現在の曜日をデフォルト選択
     title.textContent = '勤務追加';
-    daySel.value = state.currentDay;
     startIn.value = '09:00';
     endIn.value   = '17:00';
     delBtn.classList.add('hidden');
+    renderDayToggles([state.currentDay], false);
   }
 
+  updateSaveBtnState();
   modal.classList.remove('hidden');
 }
 
@@ -452,7 +488,6 @@ function init() {
   // 勤務保存
   document.getElementById('btn-shift-save').addEventListener('click', () => {
     const empId    = document.getElementById('shift-emp-select').value;
-    const day      = document.getElementById('shift-day-select').value;
     const startStr = document.getElementById('shift-start').value;
     const endStr   = document.getElementById('shift-end').value;
 
@@ -463,10 +498,16 @@ function init() {
     if (endMin <= startMin) endMin += 1440; // 翌日越えを補正
 
     if (state.editingShiftId) {
+      // 編集: 1件だけ更新（曜日はそのまま）
       const s = state.shifts.find(x => x.id === state.editingShiftId);
-      Object.assign(s, { empId, day, startMin, endMin });
+      Object.assign(s, { empId, startMin, endMin });
     } else {
-      state.shifts.push({ id: uid(), empId, day, startMin, endMin });
+      // 新規: 選択した全曜日に1件ずつ追加
+      const days = getSelectedDays();
+      if (days.length === 0) return;
+      days.forEach(day => {
+        state.shifts.push({ id: uid(), empId, day, startMin, endMin });
+      });
     }
 
     saveShifts();
