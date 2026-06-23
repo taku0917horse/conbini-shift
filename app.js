@@ -398,7 +398,7 @@ function makeEmpListItem(emp) {
   info.appendChild(dnSpan);
   li.appendChild(dot);
   li.appendChild(info);
-  li.addEventListener('click', () => openEmpModal(emp.id));
+  li.addEventListener('click', () => openEmpWeekModal(emp.id));
   return li;
 }
 
@@ -803,6 +803,75 @@ function renderColorPicker() {
   });
 }
 
+// ========= 従業員週間スケジュール =========
+let weekViewEmpId = null;
+
+function openEmpWeekModal(empId) {
+  weekViewEmpId = empId;
+  const emp = state.employees.find(e => e.id === empId);
+  if (!emp) return;
+
+  // ヘッダー
+  document.getElementById('emp-week-color-dot').style.background = emp.color;
+  document.getElementById('emp-week-emp-name').textContent = emp.name;
+  const catLine = [emp.category || '未設定', emp.memo].filter(Boolean).join(' · ');
+  document.getElementById('emp-week-category').textContent = catLine;
+
+  // 週間スケジュール生成
+  const body = document.getElementById('emp-week-body');
+  body.innerHTML = '';
+  let totalMin = 0;
+
+  DAYS.forEach(day => {
+    const dayShifts = state.shifts
+      .filter(s => s.empId === empId && s.day === day)
+      .sort((a, b) => a.startMin - b.startMin);
+
+    const row = document.createElement('div');
+    row.className = 'emp-week-row';
+
+    const dayEl = document.createElement('div');
+    dayEl.className   = 'emp-week-day';
+    dayEl.textContent = day;
+    row.appendChild(dayEl);
+
+    const shiftsEl = document.createElement('div');
+    shiftsEl.className = 'emp-week-shifts';
+
+    if (dayShifts.length === 0) {
+      const rest = document.createElement('div');
+      rest.className   = 'emp-week-rest';
+      rest.textContent = '休み';
+      shiftsEl.appendChild(rest);
+    } else {
+      dayShifts.forEach(s => {
+        totalMin += Math.max(0, (s.endMin - s.startMin) - (s.breakMin || 0));
+        const entry = document.createElement('div');
+        entry.className = 'emp-week-entry';
+        const brk = s.breakMin > 0 ? `（休${s.breakMin}分）` : '';
+        entry.textContent = `${minToTime(s.startMin)}〜${minToTime(s.endMin)}${brk}`;
+        shiftsEl.appendChild(entry);
+      });
+    }
+
+    row.appendChild(shiftsEl);
+    body.appendChild(row);
+  });
+
+  // 週合計（実働）
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  const totalLabel = totalMin === 0 ? '0時間' : (m > 0 ? `${h}時間${m}分` : `${h}時間`);
+  document.getElementById('emp-week-total').textContent = `週合計（実働）: ${totalLabel}`;
+
+  document.getElementById('modal-emp-week').classList.remove('hidden');
+}
+
+function closeEmpWeekModal() {
+  document.getElementById('modal-emp-week').classList.add('hidden');
+  weekViewEmpId = null;
+}
+
 // ========= ビュー切り替え =========
 function switchView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -899,6 +968,17 @@ function init() {
 
   document.getElementById('modal-shift').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeShiftModal();
+  });
+
+  // === 従業員週間スケジュールモーダル ===
+  document.getElementById('btn-emp-week-close').addEventListener('click', closeEmpWeekModal);
+  document.getElementById('btn-emp-week-edit').addEventListener('click', () => {
+    const id = weekViewEmpId;
+    closeEmpWeekModal();
+    openEmpModal(id);
+  });
+  document.getElementById('modal-emp-week').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeEmpWeekModal();
   });
 
   // === 従業員モーダル ===

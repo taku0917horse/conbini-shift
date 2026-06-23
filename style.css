@@ -835,6 +835,86 @@ html, body {
 
 .hidden { display: none !important; }
 
+/* ========= 従業員週間スケジュール ========= */
+.emp-week-modal { padding-top: 20px; }
+
+.emp-week-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.emp-week-name-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.emp-week-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.emp-week-name {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.emp-week-cat {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.emp-week-body {
+  border-top: 1px solid var(--border);
+}
+
+.emp-week-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.emp-week-day {
+  font-size: 15px;
+  font-weight: 700;
+  width: 20px;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+
+.emp-week-shifts { flex: 1; }
+
+.emp-week-entry {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.emp-week-rest {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.emp-week-total {
+  padding: 14px 4px 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary);
+  text-align: right;
+}
+
+.btn-sm {
+  font-size: 13px !important;
+  padding: 6px 12px !important;
+}
+
 /* ========= 印刷専用 ========= */
 #print-area { display: none; }
 
