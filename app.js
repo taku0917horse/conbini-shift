@@ -526,108 +526,120 @@ function renderShortageList() {
   }
 }
 
-// ========= 印刷テーブル生成 =========
+// ========= 印刷バーチャート生成 =========
 // 基本帯の境界に対応するh値（3:00起点）: 3:00/6:00/9:00/13:00/17:00/22:00/翌3:00
 const BAND_H = new Set([0, 3, 6, 10, 14, 19, 24]);
 
-function buildPrintTable() {
-  const colData = DAYS.map(day => {
-    const dayShifts = getEffectiveShiftsForDay(day);
+function buildPrintChart() {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'print-chart';
 
-    // 時間ごとの勤務者セット（比較キーと表示用リスト）
-    const slots = Array.from({ length: 27 }, (_, h) => {
-      const hMin = h * 60;
-      const ws   = dayShifts
-        .filter(s => s.startMin <= hMin && s.endMin > hMin)
-        .sort((a, b) => a.startMin - b.startMin);
-      return {
-        key:   ws.map(s => s.empId).sort().join(','),
-        items: ws.map(s => {
-          const emp = state.employees.find(e => e.id === s.empId);
-          return emp ? { emp, breakMin: s.breakMin || 0 } : null;
-        }).filter(Boolean),
-      };
-    });
+  // ── ヘッダー行（曜日名） ──
+  const headerRow = document.createElement('div');
+  headerRow.className = 'print-chart-header';
 
-    // 同一セットが連続する区間をまとめてrowspanを計算
-    const cells = [];
-    let h = 0;
-    while (h < 27) {
-      const { key, items } = slots[h];
-      let span = 1;
-      while (h + span < 27 && slots[h + span].key === key) span++;
-      cells.push({ items, rowspan: span, startH: h, skip: false });
-      for (let j = 1; j < span; j++) cells.push({ skip: true });
-      h += span;
-    }
-    return { cells, day };
+  const corner = document.createElement('div');
+  corner.className = 'print-corner';
+  headerRow.appendChild(corner);
+
+  DAYS.forEach(day => {
+    const hdr = document.createElement('div');
+    hdr.className = 'print-day-hdr';
+    hdr.textContent = day;
+    headerRow.appendChild(hdr);
   });
+  wrapper.appendChild(headerRow);
 
-  // テーブル組立
-  const table = document.createElement('table');
-  table.className = 'print-table';
+  // ── ボディ行（時刻軸 + 7日分レーン） ──
+  const bodyRow = document.createElement('div');
+  bodyRow.className = 'print-chart-body';
 
-  const thead = table.createTHead();
-  const hrow  = thead.insertRow();
-  hrow.insertCell().textContent = '時間';
-  DAYS.forEach(d => {
-    const th = document.createElement('th');
-    th.textContent = d;
-    hrow.appendChild(th);
-  });
-
-  const tbody = table.createTBody();
-  for (let h = 0; h < 27; h++) {
+  // 時刻軸
+  const timeAxis = document.createElement('div');
+  timeAxis.className = 'print-time-axis';
+  for (let h = 0; h <= TOTAL_HOURS; h++) {
     const realH = (h + 3) % 24;
-    const tr    = tbody.insertRow();
-    if (BAND_H.has(h)) tr.classList.add('band-row');
-    const tc    = tr.insertCell();
-    tc.className   = 'time-col';
-    tc.textContent = (h >= 24 ? '翌' : '') + `${String(realH).padStart(2,'0')}:00`;
-
-    colData.forEach(({ cells, day }) => {
-      const cell = cells[h];
-      if (cell.skip) return;
-
-      const td = tr.insertCell();
-      if (cell.rowspan > 1) td.rowSpan = cell.rowspan;
-
-      // スパン全体で不足チェック
-      const cnt = cell.items.length;
-      let cls = 'print-cell';
-      for (let hi = h; hi < h + cell.rowspan; hi++) {
-        const req = getRequiredCount(day, hi * 60);
-        if (req > 0 && cnt === 0)   { cls = 'print-empty print-cell'; break; }
-        if (req > 0 && cnt < req && cls !== 'print-empty print-cell') {
-          cls = 'print-shortage print-cell';
-        }
-      }
-      td.className = cls;
-
-      // 従業員タグ（略称 + 休憩マーク）
-      cell.items.forEach(({ emp, breakMin }) => {
-        const tag = document.createElement('span');
-        tag.className        = 'print-emp-tag';
-        tag.style.background = emp.color;
-        const label = emp.displayName || emp.name.slice(0, 2);
-        tag.textContent = breakMin > 0 ? `${label}休` : label;
-        td.appendChild(tag);
-      });
-    });
+    const lbl = document.createElement('div');
+    lbl.className = 'print-time-lbl' + (BAND_H.has(h) ? ' print-time-bold' : '');
+    lbl.style.top = `calc(${h} * var(--print-hour-h))`;
+    lbl.textContent = (h >= 24 ? '翌' : '') + String(realH).padStart(2, '0') + ':00';
+    timeAxis.appendChild(lbl);
   }
-  return table;
+  bodyRow.appendChild(timeAxis);
+
+  // 7曜日分のレーン列
+  DAYS.forEach(day => {
+    const dayShifts = getEffectiveShiftsForDay(day);
+    const sorted = [...dayShifts].sort((a, b) => a.startMin - b.startMin);
+
+    // レーン割り当て（画面と同じアルゴリズム）
+    const laneEnds = [];
+    const layouts = sorted.map(shift => {
+      let lane = laneEnds.findIndex(e => e <= shift.startMin);
+      if (lane === -1) lane = laneEnds.length;
+      laneEnds[lane] = shift.endMin;
+      return { shift, lane };
+    });
+    const numLanes = Math.max(1, laneEnds.length);
+
+    const lanesDiv = document.createElement('div');
+    lanesDiv.className = 'print-lanes';
+
+    // 水平線（h=1〜TOTAL_HOURS-1。h=0は上枠線、h=27は下枠線で代替）
+    for (let h = 1; h < TOTAL_HOURS; h++) {
+      const line = document.createElement('div');
+      line.className = 'print-hline' + (BAND_H.has(h) ? ' print-band-line' : '');
+      line.style.top = `calc(${h} * var(--print-hour-h))`;
+      lanesDiv.appendChild(line);
+    }
+
+    // シフトバー
+    layouts.forEach(({ shift, lane }) => {
+      const emp = state.employees.find(e => e.id === shift.empId);
+      if (!emp) return;
+
+      const laneW = 1 / numLanes;
+      const bar = document.createElement('div');
+      bar.className = 'print-bar';
+      bar.style.top        = `calc(${(shift.startMin / 60).toFixed(4)} * var(--print-hour-h))`;
+      bar.style.height     = `calc(${((shift.endMin - shift.startMin) / 60).toFixed(4)} * var(--print-hour-h))`;
+      bar.style.left       = `${(lane * laneW * 100).toFixed(2)}%`;
+      bar.style.width      = `${(laneW * 100 - 0.5).toFixed(2)}%`;
+      bar.style.background = emp.color;
+
+      const label = emp.displayName || emp.name.slice(0, 2);
+      const timeStr = `${minToTime(shift.startMin)}–${minToTime(shift.endMin)}`;
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'print-bar-name';
+      nameEl.textContent = label;
+      bar.appendChild(nameEl);
+
+      const timeEl = document.createElement('div');
+      timeEl.className = 'print-bar-time';
+      timeEl.textContent = timeStr;
+      bar.appendChild(timeEl);
+
+      lanesDiv.appendChild(bar);
+    });
+
+    bodyRow.appendChild(lanesDiv);
+  });
+
+  wrapper.appendChild(bodyRow);
+  return wrapper;
 }
 
 function renderPrintPreview() {
   const preview = document.getElementById('print-preview');
   preview.innerHTML = '';
-  preview.appendChild(buildPrintTable());
+  preview.appendChild(buildPrintChart());
 }
 
 function renderPrintArea() {
   const area = document.getElementById('print-area');
   area.innerHTML = '';
-  area.appendChild(buildPrintTable());
+  area.appendChild(buildPrintChart());
 }
 
 // ========= 曜日トグルボタン =========
