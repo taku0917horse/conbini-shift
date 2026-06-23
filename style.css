@@ -266,6 +266,13 @@ html, body {
   color: var(--danger);
 }
 
+/* 区分開始時刻 太字ラベル */
+.time-label-bold {
+  color: var(--text);
+  font-weight: 700;
+  font-size: 11px;
+}
+
 /* ========= 従業員リスト ========= */
 #employee-list {
   list-style: none;
@@ -296,6 +303,43 @@ html, body {
 .emp-info { display: flex; flex-direction: column; gap: 2px; }
 .emp-name { font-size: 16px; font-weight: 600; }
 .emp-dn   { font-size: 11px; color: var(--muted); }
+
+/* 従業員区分セクションヘッダー */
+.emp-cat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 4px 4px;
+  list-style: none;
+}
+
+.emp-cat-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: .05em;
+}
+
+.emp-cat-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--border);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.emp-cat-count.zero {
+  color: var(--danger);
+  background: var(--danger-light);
+}
+
+.emp-cat-empty {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 2px 4px 10px;
+  list-style: none;
+}
 
 /* ========= 必要人数 サブタブ ========= */
 #req-subtab-bar {
@@ -715,6 +759,44 @@ html, body {
   background: var(--primary);
   border-color: var(--primary);
   color: #fff;
+}
+
+/* 区分ボタン */
+#category-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cat-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cat-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* テキストエリア */
+.form-group textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 15px;
+  background: var(--bg);
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+  min-height: 60px;
 }
 
 /* カラーピッカー */

@@ -54,6 +54,9 @@ const COLORS = [
   '#ea580c', '#0891b2', '#be185d', '#65a30d',
 ];
 
+// シフト区分（5種）。表示・分類のみ。勤務入力には影響しない。
+const CATEGORIES = ['明朝', '早朝', '日勤', '夕勤', '夜勤'];
+
 // ========= ストレージ =========
 const store = {
   load(key, def) {
@@ -82,9 +85,10 @@ const state = {
   editingShiftId: null,
   editingEmpId:   null,
   editingReqId:   null,
-  reqModalCount:  2,
-  selectedColor:  COLORS[0],
-  reqDay:         '月',
+  reqModalCount:      2,
+  selectedColor:      COLORS[0],
+  selectedCategory:   '日勤',
+  reqDay:             '月',
 };
 
 function touchDataDate() { store.save('currentDataDate', new Date().toISOString()); }
@@ -291,12 +295,15 @@ function renderShiftChart() {
   const sizeBtn = document.getElementById('btn-hour-size');
   if (sizeBtn) sizeBtn.textContent = HOUR_SIZE_LABELS[hourSizeIdx];
 
+  // 区分開始時刻（3:00起点のhインデックス）→ ラベル太字
+  const CHART_BOLD_H = new Set([0, 3, 6, 14, 19]); // 3/6/9/17/22時
+
   // 時刻ラベル & 水平線
   for (let h = 0; h <= TOTAL_HOURS; h++) {
     const y     = h * HOUR_H;
     const realH = (h + 3) % 24;
     const lbl   = document.createElement('div');
-    lbl.className   = 'time-label';
+    lbl.className   = 'time-label' + (CHART_BOLD_H.has(h) ? ' time-label-bold' : '');
     lbl.style.top   = y + 'px';
     lbl.textContent = (h >= 24 ? '翌' : '') + `${String(realH).padStart(2, '0')}:00`;
     labels.appendChild(lbl);
@@ -368,28 +375,78 @@ function renderShiftChart() {
   }
 }
 
-// ========= 従業員リスト描画 =========
+// ========= 従業員リスト描画（区分グループ表示） =========
+function makeEmpListItem(emp) {
+  const li = document.createElement('li');
+  li.className = 'employee-item';
+  const dn = emp.displayName || emp.name.slice(0, 2);
+  const memoSnip = emp.memo
+    ? ' · ' + emp.memo.slice(0, 24) + (emp.memo.length > 24 ? '…' : '')
+    : '';
+  const dot  = document.createElement('div');
+  dot.className = 'emp-color-dot';
+  dot.style.background = emp.color;
+  const info = document.createElement('div');
+  info.className = 'emp-info';
+  const nameSpan = document.createElement('span');
+  nameSpan.className   = 'emp-name';
+  nameSpan.textContent = emp.name;
+  const dnSpan = document.createElement('span');
+  dnSpan.className   = 'emp-dn';
+  dnSpan.textContent = `略称: ${dn}${memoSnip}`;
+  info.appendChild(nameSpan);
+  info.appendChild(dnSpan);
+  li.appendChild(dot);
+  li.appendChild(info);
+  li.addEventListener('click', () => openEmpModal(emp.id));
+  return li;
+}
+
 function renderEmployeeList() {
   const ul = document.getElementById('employee-list');
   ul.innerHTML = '';
+
   if (state.employees.length === 0) {
-    ul.innerHTML = '<li class="empty-msg">従業員を追加してください</li>';
+    const li = document.createElement('li');
+    li.className   = 'empty-msg';
+    li.textContent = '従業員を追加してください';
+    ul.appendChild(li);
     return;
   }
+
+  // 区分ごとにグループ化
+  const catMap = new Map(CATEGORIES.map(c => [c, []]));
+  const uncategorized = [];
   state.employees.forEach(emp => {
-    const li = document.createElement('li');
-    li.className = 'employee-item';
-    const dn = emp.displayName || emp.name.slice(0, 2);
-    li.innerHTML = `
-      <div class="emp-color-dot" style="background:${emp.color}"></div>
-      <div class="emp-info">
-        <span class="emp-name">${emp.name}</span>
-        <span class="emp-dn">略称: ${dn}</span>
-      </div>
-    `;
-    li.addEventListener('click', () => openEmpModal(emp.id));
-    ul.appendChild(li);
+    if (catMap.has(emp.category)) catMap.get(emp.category).push(emp);
+    else uncategorized.push(emp);
   });
+
+  const renderSection = (label, emps) => {
+    const hdr = document.createElement('li');
+    hdr.className = 'emp-cat-header';
+    const nameEl = document.createElement('span');
+    nameEl.className   = 'emp-cat-name';
+    nameEl.textContent = label;
+    const cntEl = document.createElement('span');
+    cntEl.className   = 'emp-cat-count' + (emps.length === 0 ? ' zero' : '');
+    cntEl.textContent = `${emps.length}人`;
+    hdr.appendChild(nameEl);
+    hdr.appendChild(cntEl);
+    ul.appendChild(hdr);
+
+    if (emps.length === 0) {
+      const empty = document.createElement('li');
+      empty.className   = 'emp-cat-empty';
+      empty.textContent = 'なし';
+      ul.appendChild(empty);
+    } else {
+      emps.forEach(emp => ul.appendChild(makeEmpListItem(emp)));
+    }
+  };
+
+  catMap.forEach((emps, cat) => renderSection(cat, emps));
+  if (uncategorized.length > 0) renderSection('未設定', uncategorized);
 }
 
 // ========= 必要人数ルール描画（全曜日一覧） =========
@@ -697,22 +754,28 @@ function openEmpModal(empId = null) {
   state.editingEmpId = empId;
   const nameIn = document.getElementById('emp-name');
   const dnIn   = document.getElementById('emp-display-name');
+  const memoIn = document.getElementById('emp-memo');
   const delBtn = document.getElementById('btn-emp-delete');
 
   if (empId) {
     const emp = state.employees.find(e => e.id === empId);
     document.getElementById('modal-emp-title').textContent = '従業員編集';
-    nameIn.value        = emp.name;
-    dnIn.value          = emp.displayName || '';
-    state.selectedColor = emp.color;
+    nameIn.value              = emp.name;
+    dnIn.value                = emp.displayName || '';
+    memoIn.value              = emp.memo || '';
+    state.selectedColor       = emp.color;
+    state.selectedCategory    = emp.category || '日勤';
     delBtn.classList.remove('hidden');
   } else {
     document.getElementById('modal-emp-title').textContent = '従業員追加';
-    nameIn.value        = '';
-    dnIn.value          = '';
-    state.selectedColor = COLORS[state.employees.length % COLORS.length];
+    nameIn.value              = '';
+    dnIn.value                = '';
+    memoIn.value              = '';
+    state.selectedColor       = COLORS[state.employees.length % COLORS.length];
+    state.selectedCategory    = '日勤';
     delBtn.classList.add('hidden');
   }
+  renderCategoryBtns();
   renderColorPicker();
   document.getElementById('modal-employee').classList.remove('hidden');
 }
@@ -720,6 +783,12 @@ function openEmpModal(empId = null) {
 function closeEmpModal() {
   document.getElementById('modal-employee').classList.add('hidden');
   state.editingEmpId = null;
+}
+
+function renderCategoryBtns() {
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cat === state.selectedCategory);
+  });
 }
 
 function renderColorPicker() {
@@ -835,17 +904,33 @@ function init() {
   // === 従業員モーダル ===
   document.getElementById('btn-add-employee').addEventListener('click', () => openEmpModal());
 
+  // 区分ボタン
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.selectedCategory = btn.dataset.cat;
+      renderCategoryBtns();
+    });
+  });
+
   document.getElementById('btn-emp-save').addEventListener('click', () => {
     const name        = document.getElementById('emp-name').value.trim();
     const displayName = document.getElementById('emp-display-name').value.trim();
+    const memo        = document.getElementById('emp-memo').value.trim();
     if (!name) return;
     if (state.editingEmpId) {
       const emp = state.employees.find(e => e.id === state.editingEmpId);
       emp.name        = name;
       emp.displayName = displayName;
       emp.color       = state.selectedColor;
+      emp.category    = state.selectedCategory;
+      emp.memo        = memo;
     } else {
-      state.employees.push({ id: uid(), name, displayName, color: state.selectedColor });
+      state.employees.push({
+        id: uid(), name, displayName,
+        color: state.selectedColor,
+        category: state.selectedCategory,
+        memo,
+      });
     }
     saveEmployees();
     closeEmpModal();

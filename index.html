@@ -228,8 +228,22 @@
         <input type="text" id="emp-display-name" placeholder="例: 田中、佐木" maxlength="4" />
       </div>
       <div class="form-group">
+        <label>区分 <span class="form-hint">（主な勤務帯。制約なし）</span></label>
+        <div id="category-buttons">
+          <button type="button" class="cat-btn" data-cat="明朝">明朝</button>
+          <button type="button" class="cat-btn" data-cat="早朝">早朝</button>
+          <button type="button" class="cat-btn" data-cat="日勤">日勤</button>
+          <button type="button" class="cat-btn" data-cat="夕勤">夕勤</button>
+          <button type="button" class="cat-btn" data-cat="夜勤">夜勤</button>
+        </div>
+      </div>
+      <div class="form-group">
         <label>色</label>
         <div id="color-picker"></div>
+      </div>
+      <div class="form-group">
+        <label>メモ <span class="form-hint">（覚え書き。判定には使いません）</span></label>
+        <textarea id="emp-memo" rows="2" maxlength="200" placeholder="例: 火曜NG、テスト期間注意"></textarea>
       </div>
       <div class="modal-actions">
         <button id="btn-emp-save" class="btn-primary">保存</button>
