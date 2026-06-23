@@ -690,7 +690,7 @@ html, body {
     padding: 8mm;
   }
 
-  #print-area .print-table { font-size: 9px; width: 100%; }
+  #print-area .print-table { font-size: 8px; width: 100%; }
 
   #print-area .print-table th,
   #print-area .print-table td { border: 0.5pt solid #555; padding: 1px 2px; }

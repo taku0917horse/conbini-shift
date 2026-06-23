@@ -2,16 +2,28 @@
 
 // ========= 定数 =========
 const DAYS = ['月', '火', '水', '木', '金', '土', '日'];
-const HOUR_H = 48;
-const TOTAL_HOURS = 24;
+const HOUR_H     = 48;
+const TOTAL_HOURS = 27;   // 3:00〜翌6:00 の 27 時間
+const MAX_MIN     = 1620; // 27h * 60min
 
+// 3:00起点の分 → 表示用文字列（1440以上は「翌HH:MM」）
 function minToTime(m) {
   const total = (m + 3 * 60) % (24 * 60);
-  const h = Math.floor(total / 60);
+  const h  = Math.floor(total / 60);
+  const mm = total % 60;
+  const t  = `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  return m >= 1440 ? `翌${t}` : t;
+}
+
+// input[type=time] の value 用（プレフィックスなし HH:MM）
+function minToTimeInput(m) {
+  const total = (m + 3 * 60) % (24 * 60);
+  const h  = Math.floor(total / 60);
   const mm = total % 60;
   return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
+// 実時刻文字列 "HH:MM" → 3:00起点の分（深夜またぎは呼び出し元で +1440 補正）
 function timeToMin(str) {
   const [h, m] = str.split(':').map(Number);
   return ((h - 3 + 24) % 24) * 60 + m;
@@ -28,6 +40,8 @@ const PRESETS = [
   ['13-17', '13:00', '17:00'],
   ['17-22', '17:00', '22:00'],
   ['22-3',  '22:00', '03:00'],
+  ['22-4',  '22:00', '04:00'],
+  ['22-6',  '22:00', '06:00'],
 ];
 
 const COLORS = [
@@ -178,9 +192,9 @@ function computeShortages(day) {
   if (dayReqs.length === 0) return [];
 
   // ブレークポイント = 全シフト・全ルールの開始/終了
-  const bp = new Set([0, 1440]);
-  dayShifts.forEach(s => { bp.add(s.startMin); bp.add(Math.min(s.endMin, 1440)); });
-  dayReqs.forEach(r   => { bp.add(r.startMin); bp.add(Math.min(r.endMin, 1440)); });
+  const bp = new Set([0, MAX_MIN]);
+  dayShifts.forEach(s => { bp.add(s.startMin); bp.add(Math.min(s.endMin, MAX_MIN)); });
+  dayReqs.forEach(r   => { bp.add(r.startMin); bp.add(Math.min(r.endMin, MAX_MIN)); });
 
   const points = [...bp].sort((a, b) => a - b);
   const segs = [];
@@ -227,7 +241,7 @@ function renderShiftChart() {
     const lbl   = document.createElement('div');
     lbl.className   = 'time-label';
     lbl.style.top   = y + 'px';
-    lbl.textContent = `${String(realH).padStart(2, '0')}:00`;
+    lbl.textContent = (h >= 24 ? '翌' : '') + `${String(realH).padStart(2, '0')}:00`;
     labels.appendChild(lbl);
 
     if (h < TOTAL_HOURS) {
@@ -383,7 +397,7 @@ function buildPrintTable() {
     const dayShifts = state.shifts.filter(s => s.day === day);
 
     // 時間ごとの勤務者セット（比較キーと表示用リスト）
-    const slots = Array.from({ length: 24 }, (_, h) => {
+    const slots = Array.from({ length: 27 }, (_, h) => {
       const hMin = h * 60;
       const ws   = dayShifts
         .filter(s => s.startMin <= hMin && s.endMin > hMin)
@@ -397,10 +411,10 @@ function buildPrintTable() {
     // 同一セットが連続する区間をまとめてrowspanを計算
     const cells = [];
     let h = 0;
-    while (h < 24) {
+    while (h < 27) {
       const { key, emps } = slots[h];
       let span = 1;
-      while (h + span < 24 && slots[h + span].key === key) span++;
+      while (h + span < 27 && slots[h + span].key === key) span++;
       cells.push({ emps, rowspan: span, startH: h, skip: false });
       for (let j = 1; j < span; j++) cells.push({ skip: true });
       h += span;
@@ -422,12 +436,12 @@ function buildPrintTable() {
   });
 
   const tbody = table.createTBody();
-  for (let h = 0; h < 24; h++) {
+  for (let h = 0; h < 27; h++) {
     const realH = (h + 3) % 24;
     const tr    = tbody.insertRow();
     const tc    = tr.insertCell();
     tc.className   = 'time-col';
-    tc.textContent = `${String(realH).padStart(2,'0')}:00`;
+    tc.textContent = (h >= 24 ? '翌' : '') + `${String(realH).padStart(2,'0')}:00`;
 
     colData.forEach(({ cells, day }) => {
       const cell = cells[h];
@@ -529,8 +543,8 @@ function openShiftModal(shiftId = null) {
     const shift = state.shifts.find(s => s.id === shiftId);
     document.getElementById('modal-shift-title').textContent = '勤務編集';
     empSel.value  = shift.empId;
-    startIn.value = minToTime(shift.startMin);
-    endIn.value   = minToTime(shift.endMin);
+    startIn.value = minToTimeInput(shift.startMin);
+    endIn.value   = minToTimeInput(shift.endMin);
     delBtn.classList.remove('hidden');
     renderDayToggles([shift.day], true);
   } else {
@@ -558,8 +572,8 @@ function openReqModal(ruleId = null) {
   if (ruleId) {
     const rule = state.requirements.find(r => r.id === ruleId);
     document.getElementById('modal-req-title').textContent = 'ルール編集';
-    document.getElementById('req-start').value = minToTime(rule.startMin);
-    document.getElementById('req-end').value   = minToTime(rule.endMin);
+    document.getElementById('req-start').value = minToTimeInput(rule.startMin);
+    document.getElementById('req-end').value   = minToTimeInput(rule.endMin);
     state.reqModalCount = rule.count;
     delBtn.classList.remove('hidden');
   } else {
