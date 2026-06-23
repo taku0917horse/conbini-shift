@@ -2,9 +2,14 @@
 
 // ========= 定数 =========
 const DAYS = ['月', '火', '水', '木', '金', '土', '日'];
-const HOUR_H     = 48;
 const TOTAL_HOURS = 27;   // 3:00〜翌6:00 の 27 時間
 const MAX_MIN     = 1620; // 27h * 60min
+
+// 1時間あたりの表示高さ（px）。3段階: コンパクト / 標準 / ゆったり
+const HOUR_SIZES       = [24, 36, 48];
+const HOUR_SIZE_LABELS = ['コンパクト', '標準', 'ゆったり'];
+let hourSizeIdx = 0;   // localStorage で上書き
+let HOUR_H      = HOUR_SIZES[hourSizeIdx];
 
 // 3:00起点の分 → 表示用文字列（1440以上は「翌HH:MM」）
 function minToTime(m) {
@@ -57,6 +62,11 @@ const store = {
   },
   save(key, val) { localStorage.setItem(key, JSON.stringify(val)); },
 };
+
+// 行高さの設定を localStorage から復元
+hourSizeIdx = store.load('hourSizeIdx', 0);
+if (hourSizeIdx < 0 || hourSizeIdx >= HOUR_SIZES.length) hourSizeIdx = 0;
+HOUR_H = HOUR_SIZES[hourSizeIdx];
 
 // ========= 状態 =========
 // requirements は配列: [{ id, day, startMin, endMin, count }]
@@ -257,6 +267,14 @@ function computeShortages(day) {
   return merged;
 }
 
+// 行高さを1段階進めて再描画
+function cycleHourSize() {
+  hourSizeIdx = (hourSizeIdx + 1) % HOUR_SIZES.length;
+  HOUR_H = HOUR_SIZES[hourSizeIdx];
+  store.save('hourSizeIdx', hourSizeIdx);
+  renderShiftChart();
+}
+
 // ========= シフトチャート描画 =========
 function renderShiftChart() {
   const day     = state.currentDay;
@@ -268,6 +286,10 @@ function renderShiftChart() {
   lanes.innerHTML   = '';
   overlay.innerHTML = '';
   lanes.style.minHeight = (HOUR_H * TOTAL_HOURS) + 'px';
+
+  // トグルボタンのラベルを現在モードに同期
+  const sizeBtn = document.getElementById('btn-hour-size');
+  if (sizeBtn) sizeBtn.textContent = HOUR_SIZE_LABELS[hourSizeIdx];
 
   // 時刻ラベル & 水平線
   for (let h = 0; h <= TOTAL_HOURS; h++) {
@@ -742,6 +764,9 @@ function init() {
       renderShiftChart();
     });
   });
+
+  // === 行高さトグル ===
+  document.getElementById('btn-hour-size').addEventListener('click', cycleHourSize);
 
   // === 勤務モーダル ===
   document.getElementById('btn-add-shift').addEventListener('click', () => openShiftModal());
