@@ -69,31 +69,31 @@
       <header class="view-header">
         <h1>必要人数</h1>
       </header>
-      <!-- サブタブ -->
+      <!-- サブタブ: 不足リストを先頭に -->
       <div id="req-subtab-bar">
-        <button class="req-subtab active" data-subtab="rules">ルール設定</button>
-        <button class="req-subtab" data-subtab="shortage">不足リスト</button>
+        <button class="req-subtab active" data-subtab="shortage">不足リスト</button>
+        <button class="req-subtab" data-subtab="rules">ルール設定</button>
       </div>
-      <!-- ルール設定 -->
-      <div id="req-sub-rules" class="req-subview">
+      <!-- 不足リスト（デフォルト表示） -->
+      <div id="req-sub-shortage" class="req-subview">
+        <div id="shortage-list"></div>
+      </div>
+      <!-- ルール設定（全曜日一覧） -->
+      <div id="req-sub-rules" class="req-subview hidden">
         <div id="req-controls">
-          <select id="req-day-select">
-            <option value="月">月曜日</option>
-            <option value="火">火曜日</option>
-            <option value="水">水曜日</option>
-            <option value="木">木曜日</option>
-            <option value="金">金曜日</option>
-            <option value="土">土曜日</option>
-            <option value="日">日曜日</option>
-          </select>
           <button id="btn-add-req" class="btn-primary">＋追加</button>
+          <select id="req-copy-src">
+            <option value="月">月</option>
+            <option value="火">火</option>
+            <option value="水">水</option>
+            <option value="木">木</option>
+            <option value="金">金</option>
+            <option value="土">土</option>
+            <option value="日">日</option>
+          </select>
           <button id="btn-copy-all-days" class="btn-secondary">全日コピー</button>
         </div>
         <div id="req-rules-list"></div>
-      </div>
-      <!-- 不足リスト -->
-      <div id="req-sub-shortage" class="req-subview hidden">
-        <div id="shortage-list"></div>
       </div>
     </div>
 
@@ -151,6 +151,15 @@
         <label>終了時刻（翌4:00の場合 04:00、翌6:00の場合 06:00）</label>
         <input type="time" id="shift-end" />
       </div>
+      <div class="form-group">
+        <label>休憩（分）</label>
+        <div class="break-btns">
+          <button type="button" class="break-preset-btn" data-min="0">なし</button>
+          <button type="button" class="break-preset-btn" data-min="45">45分</button>
+          <button type="button" class="break-preset-btn" data-min="60">60分</button>
+        </div>
+        <input type="number" id="shift-break" min="0" max="240" step="5" value="0" />
+      </div>
       <div class="modal-actions">
         <button id="btn-shift-save" class="btn-primary">保存</button>
         <button id="btn-shift-delete" class="btn-danger hidden">削除</button>
@@ -163,6 +172,18 @@
   <div id="modal-req" class="modal hidden">
     <div class="modal-content">
       <h2 id="modal-req-title">ルール追加</h2>
+      <div class="form-group">
+        <label>曜日</label>
+        <select id="req-day-modal">
+          <option value="月">月曜日</option>
+          <option value="火">火曜日</option>
+          <option value="水">水曜日</option>
+          <option value="木">木曜日</option>
+          <option value="金">金曜日</option>
+          <option value="土">土曜日</option>
+          <option value="日">日曜日</option>
+        </select>
+      </div>
       <div class="form-group">
         <label>プリセット</label>
         <div id="req-preset-buttons"></div>

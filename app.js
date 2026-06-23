@@ -280,7 +280,15 @@ function renderShiftChart() {
       `width:${laneW * 100 - 1}%`,
       `background:${emp.color}`,
     ].join(';');
-    bar.textContent = emp.name;
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = emp.name;
+    bar.appendChild(nameSpan);
+    if (shift.breakMin > 0) {
+      const brk = document.createElement('span');
+      brk.className   = 'bar-break';
+      brk.textContent = `休${shift.breakMin}`;
+      bar.appendChild(brk);
+    }
     bar.addEventListener('click', () => openShiftModal(shift.id));
     lanes.appendChild(bar);
   });
@@ -326,30 +334,43 @@ function renderEmployeeList() {
   });
 }
 
-// ========= 必要人数ルール描画 =========
+// ========= 必要人数ルール描画（全曜日一覧） =========
 function renderReqRules() {
-  const day  = state.reqDay;
   const list = document.getElementById('req-rules-list');
   list.innerHTML = '';
 
-  const dayRules = state.requirements
-    .filter(r => r.day === day)
-    .sort((a, b) => a.startMin - b.startMin);
+  DAYS.forEach(day => {
+    const section = document.createElement('div');
+    section.className = 'req-day-section';
 
-  if (dayRules.length === 0) {
-    list.innerHTML = '<div class="empty-msg">ルールなし。＋追加で作成してください</div>';
-    return;
-  }
+    const title = document.createElement('div');
+    title.className   = 'req-day-section-title';
+    title.textContent = day + '曜日';
+    section.appendChild(title);
 
-  dayRules.forEach(rule => {
-    const item = document.createElement('div');
-    item.className = 'req-rule-item';
-    item.innerHTML = `
-      <div class="req-rule-time">${minToTime(rule.startMin)}〜${minToTime(rule.endMin)}</div>
-      <div class="req-rule-right"><span class="req-rule-count">${rule.count}</span>人</div>
-    `;
-    item.addEventListener('click', () => openReqModal(rule.id));
-    list.appendChild(item);
+    const dayRules = state.requirements
+      .filter(r => r.day === day)
+      .sort((a, b) => a.startMin - b.startMin);
+
+    if (dayRules.length === 0) {
+      const empty = document.createElement('div');
+      empty.className   = 'req-rule-empty';
+      empty.textContent = 'ルールなし';
+      section.appendChild(empty);
+    } else {
+      dayRules.forEach(rule => {
+        const item = document.createElement('div');
+        item.className = 'req-rule-item';
+        item.innerHTML = `
+          <div class="req-rule-time">${minToTime(rule.startMin)}〜${minToTime(rule.endMin)}</div>
+          <div class="req-rule-right"><span class="req-rule-count">${rule.count}</span>人</div>
+        `;
+        item.addEventListener('click', () => openReqModal(rule.id));
+        section.appendChild(item);
+      });
+    }
+
+    list.appendChild(section);
   });
 }
 
@@ -391,8 +412,10 @@ function renderShortageList() {
 }
 
 // ========= 印刷テーブル生成 =========
+// 基本帯の境界に対応するh値（3:00起点）: 3:00/6:00/9:00/13:00/17:00/22:00/翌3:00
+const BAND_H = new Set([0, 3, 6, 10, 14, 19, 24]);
+
 function buildPrintTable() {
-  // 各曜日ごとに24時間分のセル情報を事前計算（連続する同一勤務セットをrowspanで結合）
   const colData = DAYS.map(day => {
     const dayShifts = state.shifts.filter(s => s.day === day);
 
@@ -403,8 +426,11 @@ function buildPrintTable() {
         .filter(s => s.startMin <= hMin && s.endMin > hMin)
         .sort((a, b) => a.startMin - b.startMin);
       return {
-        key:  ws.map(s => s.empId).sort().join(','),
-        emps: ws.map(s => state.employees.find(e => e.id === s.empId)).filter(Boolean),
+        key:   ws.map(s => s.empId).sort().join(','),
+        items: ws.map(s => {
+          const emp = state.employees.find(e => e.id === s.empId);
+          return emp ? { emp, breakMin: s.breakMin || 0 } : null;
+        }).filter(Boolean),
       };
     });
 
@@ -412,10 +438,10 @@ function buildPrintTable() {
     const cells = [];
     let h = 0;
     while (h < 27) {
-      const { key, emps } = slots[h];
+      const { key, items } = slots[h];
       let span = 1;
       while (h + span < 27 && slots[h + span].key === key) span++;
-      cells.push({ emps, rowspan: span, startH: h, skip: false });
+      cells.push({ items, rowspan: span, startH: h, skip: false });
       for (let j = 1; j < span; j++) cells.push({ skip: true });
       h += span;
     }
@@ -439,19 +465,20 @@ function buildPrintTable() {
   for (let h = 0; h < 27; h++) {
     const realH = (h + 3) % 24;
     const tr    = tbody.insertRow();
+    if (BAND_H.has(h)) tr.classList.add('band-row');
     const tc    = tr.insertCell();
     tc.className   = 'time-col';
     tc.textContent = (h >= 24 ? '翌' : '') + `${String(realH).padStart(2,'0')}:00`;
 
     colData.forEach(({ cells, day }) => {
       const cell = cells[h];
-      if (cell.skip) return; // rowspan で上のセルがカバーするためスキップ
+      if (cell.skip) return;
 
       const td = tr.insertCell();
       if (cell.rowspan > 1) td.rowSpan = cell.rowspan;
 
-      // スパン全体で不足チェック（最悪ケースでクラスを決定）
-      const cnt = cell.emps.length;
+      // スパン全体で不足チェック
+      const cnt = cell.items.length;
       let cls = 'print-cell';
       for (let hi = h; hi < h + cell.rowspan; hi++) {
         const req = getRequiredCount(day, hi * 60);
@@ -462,12 +489,13 @@ function buildPrintTable() {
       }
       td.className = cls;
 
-      // 従業員タグ（略称を使用）
-      cell.emps.forEach(emp => {
+      // 従業員タグ（略称 + 休憩マーク）
+      cell.items.forEach(({ emp, breakMin }) => {
         const tag = document.createElement('span');
         tag.className        = 'print-emp-tag';
         tag.style.background = emp.color;
-        tag.textContent      = emp.displayName || emp.name.slice(0, 2);
+        const label = emp.displayName || emp.name.slice(0, 2);
+        tag.textContent = breakMin > 0 ? `${label}休` : label;
         td.appendChild(tag);
       });
     });
@@ -521,12 +549,20 @@ function updateShiftSaveBtnState() {
   btn.style.opacity = btn.disabled ? '0.4' : '';
 }
 
+function updateBreakBtnState() {
+  const val = document.getElementById('shift-break').value;
+  document.querySelectorAll('.break-preset-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.min === val);
+  });
+}
+
 // ========= モーダル: 勤務 =========
 function openShiftModal(shiftId = null) {
   state.editingShiftId = shiftId;
   const empSel  = document.getElementById('shift-emp-select');
   const startIn = document.getElementById('shift-start');
   const endIn   = document.getElementById('shift-end');
+  const breakIn = document.getElementById('shift-break');
   const delBtn  = document.getElementById('btn-shift-delete');
 
   empSel.innerHTML = state.employees.length === 0
@@ -545,16 +581,19 @@ function openShiftModal(shiftId = null) {
     empSel.value  = shift.empId;
     startIn.value = minToTimeInput(shift.startMin);
     endIn.value   = minToTimeInput(shift.endMin);
+    breakIn.value = shift.breakMin || 0;
     delBtn.classList.remove('hidden');
     renderDayToggles([shift.day], true);
   } else {
     document.getElementById('modal-shift-title').textContent = '勤務追加';
     startIn.value = '09:00';
     endIn.value   = '17:00';
+    breakIn.value = 0;
     delBtn.classList.add('hidden');
     renderDayToggles([state.currentDay], false);
   }
 
+  updateBreakBtnState();
   updateShiftSaveBtnState();
   document.getElementById('modal-shift').classList.remove('hidden');
 }
@@ -567,17 +606,20 @@ function closeShiftModal() {
 // ========= モーダル: 必要人数ルール =========
 function openReqModal(ruleId = null) {
   state.editingReqId = ruleId;
-  const delBtn = document.getElementById('btn-req-delete');
+  const delBtn   = document.getElementById('btn-req-delete');
+  const dayModal = document.getElementById('req-day-modal');
 
   if (ruleId) {
     const rule = state.requirements.find(r => r.id === ruleId);
     document.getElementById('modal-req-title').textContent = 'ルール編集';
+    dayModal.value = rule.day;
     document.getElementById('req-start').value = minToTimeInput(rule.startMin);
     document.getElementById('req-end').value   = minToTimeInput(rule.endMin);
     state.reqModalCount = rule.count;
     delBtn.classList.remove('hidden');
   } else {
     document.getElementById('modal-req-title').textContent = 'ルール追加';
+    dayModal.value = state.reqDay;
     document.getElementById('req-start').value = '09:00';
     document.getElementById('req-end').value   = '17:00';
     state.reqModalCount = 2;
@@ -644,7 +686,7 @@ function switchView(name) {
 
   if (name === 'shift')        renderShiftChart();
   if (name === 'employees')    renderEmployeeList();
-  if (name === 'requirements') renderReqRules();
+  if (name === 'requirements') renderShortageList();
   if (name === 'print')        renderPrintPreview();
 }
 
@@ -682,6 +724,15 @@ function init() {
     presetWrap.appendChild(btn);
   });
 
+  // 休憩プリセットボタン
+  document.querySelectorAll('.break-preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('shift-break').value = btn.dataset.min;
+      updateBreakBtnState();
+    });
+  });
+  document.getElementById('shift-break').addEventListener('input', updateBreakBtnState);
+
   document.getElementById('btn-shift-save').addEventListener('click', () => {
     const empId    = document.getElementById('shift-emp-select').value;
     const startStr = document.getElementById('shift-start').value;
@@ -691,14 +742,15 @@ function init() {
     const startMin = timeToMin(startStr);
     let endMin     = timeToMin(endStr);
     if (endMin <= startMin) endMin += 1440;
+    const breakMin = parseInt(document.getElementById('shift-break').value) || 0;
 
     if (state.editingShiftId) {
       const s = state.shifts.find(x => x.id === state.editingShiftId);
-      Object.assign(s, { empId, startMin, endMin });
+      Object.assign(s, { empId, startMin, endMin, breakMin });
     } else {
       const days = getSelectedDays();
       if (days.length === 0) return;
-      days.forEach(day => state.shifts.push({ id: uid(), empId, day, startMin, endMin }));
+      days.forEach(day => state.shifts.push({ id: uid(), empId, day, startMin, endMin, breakMin }));
     }
     saveShifts();
     closeShiftModal();
@@ -767,14 +819,9 @@ function init() {
     });
   });
 
-  document.getElementById('req-day-select').addEventListener('change', e => {
-    state.reqDay = e.target.value;
-    renderReqRules();
-  });
-
-  // 全日コピー
+  // 全日コピー（req-copy-src から元曜日を読む）
   document.getElementById('btn-copy-all-days').addEventListener('click', () => {
-    const day      = state.reqDay;
+    const day      = document.getElementById('req-copy-src').value;
     const dayRules = state.requirements.filter(r => r.day === day);
     if (!confirm(`${day}曜日のルールを全曜日にコピーします。\n他の曜日の設定は上書きされます。`)) return;
     state.requirements = state.requirements.filter(r => r.day === day);
@@ -783,6 +830,7 @@ function init() {
       dayRules.forEach(rule => state.requirements.push({ ...rule, id: uid(), day: d }));
     });
     saveReqs();
+    renderReqRules();
     renderShiftChart();
   });
 
@@ -820,13 +868,15 @@ function init() {
     const startMin = timeToMin(startStr);
     let endMin     = timeToMin(endStr);
     if (endMin <= startMin) endMin += 1440;
+    const day = document.getElementById('req-day-modal').value;
+    state.reqDay = day;
 
     if (state.editingReqId) {
       const rule = state.requirements.find(r => r.id === state.editingReqId);
-      Object.assign(rule, { startMin, endMin, count: state.reqModalCount });
+      Object.assign(rule, { day, startMin, endMin, count: state.reqModalCount });
     } else {
       state.requirements.push({
-        id: uid(), day: state.reqDay,
+        id: uid(), day,
         startMin, endMin, count: state.reqModalCount,
       });
     }
