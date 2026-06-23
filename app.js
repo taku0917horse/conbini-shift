@@ -176,19 +176,54 @@ function handleImport(file) {
   reader.readAsText(file, 'utf-8');
 }
 
+// ========= 日またぎ展開 =========
+function getPrevDay(day) {
+  return DAYS[(DAYS.indexOf(day) + 6) % 7];
+}
+
+// 指定曜日の実効シフト（自日分 + 前日からの日またぎ分を当日座標に変換）
+function getEffectiveShiftsForDay(day) {
+  const prevDay = getPrevDay(day);
+  const own = state.shifts.filter(s => s.day === day);
+  const overflow = state.shifts
+    .filter(s => s.day === prevDay && s.endMin > 1440)
+    .map(s => ({
+      ...s,
+      day,
+      startMin: Math.max(0, s.startMin - 1440),
+      endMin:   s.endMin - 1440,
+    }));
+  return [...own, ...overflow];
+}
+
+// 指定曜日の実効ルール（自日分 + 前日からの日またぎ分を当日座標に変換）
+function getEffectiveReqsForDay(day) {
+  const prevDay = getPrevDay(day);
+  const own = state.requirements.filter(r => r.day === day);
+  const overflow = state.requirements
+    .filter(r => r.day === prevDay && r.endMin > 1440)
+    .map(r => ({
+      ...r,
+      day,
+      startMin: Math.max(0, r.startMin - 1440),
+      endMin:   r.endMin - 1440,
+    }));
+  return [...own, ...overflow];
+}
+
 // ========= 必要人数ロジック =========
 // 指定時刻（3:00起点分）における必要人数。重複ルールは最大値。未設定は0。
 function getRequiredCount(day, min) {
-  const rules = state.requirements.filter(
-    r => r.day === day && r.startMin <= min && r.endMin > min
+  const rules = getEffectiveReqsForDay(day).filter(
+    r => r.startMin <= min && r.endMin > min
   );
   return rules.length === 0 ? 0 : Math.max(...rules.map(r => r.count));
 }
 
 // 曜日の不足区間をイベントベースで計算し、連続区間をマージして返す
 function computeShortages(day) {
-  const dayShifts = state.shifts.filter(s => s.day === day);
-  const dayReqs   = state.requirements.filter(r => r.day === day);
+  const dayShifts = getEffectiveShiftsForDay(day);
+  const dayReqs   = getEffectiveReqsForDay(day);
   if (dayReqs.length === 0) return [];
 
   // ブレークポイント = 全シフト・全ルールの開始/終了
@@ -253,7 +288,8 @@ function renderShiftChart() {
   }
 
   // シフトバー（レーン割り当て: 開始時刻順・空きレーン再利用）
-  const dayShifts = state.shifts.filter(s => s.day === day);
+  // 前日からの日またぎ分も含む実効シフトを使用
+  const dayShifts = getEffectiveShiftsForDay(day);
   const laneEnds  = [];
   const sorted    = [...dayShifts].sort((a, b) => a.startMin - b.startMin);
 
@@ -417,7 +453,7 @@ const BAND_H = new Set([0, 3, 6, 10, 14, 19, 24]);
 
 function buildPrintTable() {
   const colData = DAYS.map(day => {
-    const dayShifts = state.shifts.filter(s => s.day === day);
+    const dayShifts = getEffectiveShiftsForDay(day);
 
     // 時間ごとの勤務者セット（比較キーと表示用リスト）
     const slots = Array.from({ length: 27 }, (_, h) => {
