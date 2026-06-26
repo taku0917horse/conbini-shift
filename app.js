@@ -633,6 +633,11 @@ function buildPrintChart() {
       nameEl.textContent = label;
       bar.appendChild(nameEl);
 
+      const endEl = document.createElement('div');
+      endEl.className   = 'print-bar-end';
+      endEl.textContent = minToTimeShort(shift.endMin);
+      bar.appendChild(endEl);
+
       lanesDiv.appendChild(bar);
     });
 
@@ -664,7 +669,7 @@ function generateChartCanvas() {
   const BAND_H_SET = new Set([0, 3, 6, 10, 14, 19, 24]);
   const PX_PER_HOUR = 50;
   const TIME_W  = 54;
-  const DAY_W   = 120;
+  const DAY_W   = 160; // 時刻（例:「12:30」）が切れないよう幅を確保
   const HDR_H   = 30;
   const CHART_H = TOTAL_HOURS * PX_PER_HOUR;
   const W = TIME_W + DAYS.length * DAY_W;
@@ -776,29 +781,48 @@ function generateChartCanvas() {
       canvasRoundRect(ctx, barX, barY, barW, barH, 2);
       ctx.clip();
 
-      const nameLabel = emp.displayName || emp.name.slice(0, 2);
+      const nameLabel  = emp.displayName || emp.name.slice(0, 2);
       const startLabel = minToTimeShort(shift.startMin);
+      const endLabel   = minToTimeShort(shift.endMin);
 
-      // 開始時刻（バー上端、小横書き）
-      if (barH >= 13) {
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        ctx.font = '7px sans-serif';
+      const TIME_FONT   = '7.5px sans-serif';
+      const TIME_H      = 11; // 時刻1行分の高さ(px)
+      const TIME_MARGIN = 1.5;
+
+      // 開始時刻（バー上端）
+      if (barH >= TIME_H + 2) {
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.font = TIME_FONT;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
-        ctx.fillText(startLabel, barX + 2, barY + 1.5);
+        ctx.fillText(startLabel, barX + 2, barY + TIME_MARGIN);
       }
 
-      // 従業員名（縦書き：文字ごとに描画）
+      // 終了時刻（バー下端）
+      if (barH >= TIME_H * 2 + 4) {
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.font = TIME_FONT;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(endLabel, barX + 2, barY + barH - TIME_MARGIN);
+      }
+
+      // 従業員名（縦書き：文字ごとに描画、開始・終了時刻の間に配置）
       const CHAR_SIZE = 11;
       const CHAR_H    = CHAR_SIZE * 1.25;
-      const nameTopY  = barH >= 13 ? barY + 11 : barY + 2;
+      const hasStart  = barH >= TIME_H + 2;
+      const hasEnd    = barH >= TIME_H * 2 + 4;
+      const nameTopY  = hasStart ? barY + TIME_H + 3 : barY + 2;
+      const nameMaxY  = hasEnd   ? barY + barH - TIME_H - 2 : barY + barH - 2;
       ctx.fillStyle = '#ffffff';
       ctx.font = `bold ${CHAR_SIZE}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       const cx = barX + barW / 2;
       nameLabel.split('').forEach((ch, ci) => {
-        ctx.fillText(ch, cx, nameTopY + ci * CHAR_H);
+        const cy = nameTopY + ci * CHAR_H;
+        if (cy + CHAR_SIZE > nameMaxY) return;
+        ctx.fillText(ch, cx, cy);
       });
 
       ctx.restore();

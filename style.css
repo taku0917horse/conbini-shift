@@ -562,7 +562,7 @@ html, body {
 /* ========= 印刷・データビュー ========= */
 #print-scroll-area {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto; /* 横スクロールも許可（幅広グリッド対応） */
 }
 
 #print-preview {
@@ -696,15 +696,16 @@ html, body {
   color: #fff;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  justify-content: space-between; /* 開始時刻を上端、終了時刻を下端に */
   align-items: flex-start;
 }
 
-.print-bar-start {
+.print-bar-start,
+.print-bar-end {
   font-size: 7px;
   font-weight: 500;
-  color: rgba(255,255,255,0.88);
-  line-height: 1.1;
+  color: rgba(255,255,255,0.9);
+  line-height: 1.15;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -716,6 +717,14 @@ html, body {
   font-weight: 700;
   overflow: hidden;
   line-height: 1.2;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* 画面プレビュー: 列幅の最小値を保証して時刻が切れないようにする */
+@media screen {
+  .print-day-hdr,
+  .print-lanes { min-width: 80px; }
 }
 
 /* ========= モーダル ========= */
@@ -1029,7 +1038,8 @@ html, body {
     print-color-adjust: exact;
   }
 
-  #print-area .print-bar-start { font-size: 5pt; }
+  #print-area .print-bar-start,
+  #print-area .print-bar-end   { font-size: 5.5pt; }
   #print-area .print-bar-name  { font-size: 6pt; }
   #print-area .print-time-lbl { font-size: 6pt; }
   #print-area .print-time-bold { font-size: 7pt; font-weight: 700; color: #000; }
