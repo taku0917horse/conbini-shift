@@ -814,7 +814,11 @@ function generateChartCanvas() {
       ctx.fillStyle = emp.color;
       canvasRoundRect(ctx, barX, barY, barW, barH, 2);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+      ctx.lineWidth = 3;
+      canvasRoundRect(ctx, barX, barY, barW, barH, 2);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
       ctx.lineWidth = 2;
       canvasRoundRect(ctx, barX, barY, barW, barH, 2);
       ctx.stroke();
