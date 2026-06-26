@@ -690,14 +690,18 @@ html, body {
 
 .print-bar {
   position: absolute;
+  z-index: 1;
   border-radius: 2px;
+  border: 2px solid rgba(255,255,255,0.65);
   overflow: hidden;
   padding: 1px 2px;
   color: #fff;
   display: flex;
   flex-direction: column;
-  justify-content: space-between; /* 開始時刻を上端、終了時刻を下端に */
+  justify-content: space-between;
   align-items: flex-start;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 .print-bar-start,
@@ -719,6 +723,22 @@ html, body {
   line-height: 1.2;
   flex-shrink: 0;
   align-self: center;
+}
+
+.print-shortage-ov {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  background: rgba(252, 165, 165, 0.5);
+  border-left: 3px solid #f87171;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.print-shortage-ov.print-shortage-ov-empty {
+  background: rgba(220, 38, 38, 0.32);
+  border-left-color: #dc2626;
 }
 
 /* 画面プレビュー: 列幅の最小値を保証して時刻が切れないようにする */

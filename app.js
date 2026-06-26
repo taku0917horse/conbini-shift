@@ -280,6 +280,35 @@ function computeShortages(day) {
   return merged;
 }
 
+// 印刷・画像用：不足区間を { startMin, endMin, isEmpty } の配列で返す
+function getShortageOverlays(day) {
+  const dayShifts = getEffectiveShiftsForDay(day);
+  const dayReqs   = getEffectiveReqsForDay(day);
+  if (dayReqs.length === 0) return [];
+  const bp = new Set([0, MAX_MIN]);
+  dayShifts.forEach(s => { bp.add(s.startMin); bp.add(Math.min(s.endMin, MAX_MIN)); });
+  dayReqs.forEach(r   => { bp.add(r.startMin); bp.add(Math.min(r.endMin, MAX_MIN)); });
+  const points = [...bp].sort((a, b) => a - b);
+  const segs = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const start = points[i], end = points[i + 1];
+    const req = getRequiredCount(day, start);
+    if (req === 0) continue;
+    const actual = dayShifts.filter(s => s.startMin <= start && s.endMin > start).length;
+    if (actual < req) segs.push({ startMin: start, endMin: end, isEmpty: actual === 0 });
+  }
+  const merged = [];
+  for (const seg of segs) {
+    const last = merged[merged.length - 1];
+    if (last && last.endMin === seg.startMin && last.isEmpty === seg.isEmpty) {
+      last.endMin = seg.endMin;
+    } else {
+      merged.push({ ...seg });
+    }
+  }
+  return merged;
+}
+
 // 行高さを1段階進めて再描画
 function cycleHourSize() {
   hourSizeIdx = (hourSizeIdx + 1) % HOUR_SIZES.length;
@@ -641,6 +670,15 @@ function buildPrintChart() {
       lanesDiv.appendChild(bar);
     });
 
+    // 不足オーバーレイ（バーの上に重ねる）
+    getShortageOverlays(day).forEach(({ startMin, endMin, isEmpty }) => {
+      const ov = document.createElement('div');
+      ov.className = 'print-shortage-ov' + (isEmpty ? ' print-shortage-ov-empty' : '');
+      ov.style.top    = `calc(${(startMin / 60).toFixed(4)} * var(--print-hour-h))`;
+      ov.style.height = `calc(${((endMin - startMin) / 60).toFixed(4)} * var(--print-hour-h))`;
+      lanesDiv.appendChild(ov);
+    });
+
     bodyRow.appendChild(lanesDiv);
   });
 
@@ -776,6 +814,10 @@ function generateChartCanvas() {
       ctx.fillStyle = emp.color;
       canvasRoundRect(ctx, barX, barY, barW, barH, 2);
       ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 2;
+      canvasRoundRect(ctx, barX, barY, barW, barH, 2);
+      ctx.stroke();
 
       ctx.save();
       canvasRoundRect(ctx, barX, barY, barW, barH, 2);
@@ -826,6 +868,20 @@ function generateChartCanvas() {
       });
 
       ctx.restore();
+    });
+  });
+
+  // 不足オーバーレイ（バーの上に描画）
+  DAYS.forEach((day, di) => {
+    const colX = TIME_W + di * DAY_W;
+    getShortageOverlays(day).forEach(({ startMin, endMin, isEmpty }) => {
+      const oy = HDR_H + (startMin / 60) * PX_PER_HOUR;
+      const oh = ((endMin - startMin) / 60) * PX_PER_HOUR;
+      ctx.fillStyle = isEmpty ? 'rgba(220,38,38,0.32)' : 'rgba(252,165,165,0.5)';
+      ctx.fillRect(colX, oy, DAY_W, oh);
+      // 左端に太い縦線（画面チャートの border-left 相当）
+      ctx.fillStyle = isEmpty ? '#dc2626' : '#f87171';
+      ctx.fillRect(colX, oy, 3, oh);
     });
   });
 
