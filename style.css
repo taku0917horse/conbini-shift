@@ -625,7 +625,7 @@ html, body {
   width: 40px;
   flex-shrink: 0;
   background: #e5e7eb;
-  border-right: 0.5px solid #aaa;
+  border-right: 1.5px solid #333;
 }
 
 .print-day-hdr {
@@ -650,7 +650,7 @@ html, body {
   flex-shrink: 0;
   position: relative;
   height: calc(27 * var(--print-hour-h));
-  border-right: 0.5px solid #aaa;
+  border-right: 1.5px solid #333;
 }
 
 .print-time-lbl {
@@ -672,7 +672,7 @@ html, body {
   flex: 1;
   position: relative;
   height: calc(27 * var(--print-hour-h));
-  border-right: 0.5px solid #aaa;
+  border-right: 1.5px solid #333;
   overflow: hidden;
 }
 

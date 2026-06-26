@@ -736,12 +736,12 @@ function generateChartCanvas() {
   ctx.lineWidth = 1.5;
   ctx.strokeRect(TIME_W, HDR_H, W - TIME_W, CHART_H);
 
-  // 縦の列区切り線
+  // 縦の列区切り線（曜日間の太い縦罫線）
   DAYS.forEach((_, i) => {
     if (i === 0) return;
     const x = TIME_W + i * DAY_W;
-    ctx.strokeStyle = '#aaa';
-    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(x, HDR_H);
     ctx.lineTo(x, HDR_H + CHART_H);
