@@ -28,6 +28,15 @@ function minToTimeInput(m) {
   return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
+// バー表示用（先頭ゼロなし・翌プレフィックスあり。例: 9:00, 13:30, 翌4:00）
+function minToTimeShort(m) {
+  const total = (m + 3 * 60) % (24 * 60);
+  const h  = Math.floor(total / 60);
+  const mm = total % 60;
+  const ts = mm > 0 ? `${h}:${String(mm).padStart(2, '0')}` : `${h}:00`;
+  return m >= 1440 ? `翌${ts}` : ts;
+}
+
 // 実時刻文字列 "HH:MM" → 3:00起点の分（深夜またぎは呼び出し元で +1440 補正）
 function timeToMin(str) {
   const [h, m] = str.split(':').map(Number);
@@ -345,9 +354,14 @@ function renderShiftChart() {
       `width:${laneW * 100 - 1}%`,
       `background:${emp.color}`,
     ].join(';');
-    const nameSpan = document.createElement('span');
-    nameSpan.textContent = emp.name;
-    bar.appendChild(nameSpan);
+    const startEl = document.createElement('span');
+    startEl.className   = 'bar-start-time';
+    startEl.textContent = minToTimeShort(shift.startMin);
+    bar.appendChild(startEl);
+    const nameEl = document.createElement('span');
+    nameEl.className   = 'bar-emp-name';
+    nameEl.textContent = emp.name;
+    bar.appendChild(nameEl);
     if (shift.breakMin > 0) {
       const brk = document.createElement('span');
       brk.className   = 'bar-break';
@@ -608,17 +622,16 @@ function buildPrintChart() {
       bar.style.background = emp.color;
 
       const label = emp.displayName || emp.name.slice(0, 2);
-      const timeStr = `${minToTime(shift.startMin)}–${minToTime(shift.endMin)}`;
+
+      const startEl = document.createElement('div');
+      startEl.className   = 'print-bar-start';
+      startEl.textContent = minToTimeShort(shift.startMin);
+      bar.appendChild(startEl);
 
       const nameEl = document.createElement('div');
-      nameEl.className = 'print-bar-name';
+      nameEl.className   = 'print-bar-name';
       nameEl.textContent = label;
       bar.appendChild(nameEl);
-
-      const timeEl = document.createElement('div');
-      timeEl.className = 'print-bar-time';
-      timeEl.textContent = timeStr;
-      bar.appendChild(timeEl);
 
       lanesDiv.appendChild(bar);
     });
@@ -628,6 +641,213 @@ function buildPrintChart() {
 
   wrapper.appendChild(bodyRow);
   return wrapper;
+}
+
+// ========= 画像エクスポート（Canvas 2D） =========
+function canvasRoundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  if (r < 0) r = 0;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
+function generateChartCanvas() {
+  const BAND_H_SET = new Set([0, 3, 6, 10, 14, 19, 24]);
+  const PX_PER_HOUR = 50;
+  const TIME_W  = 54;
+  const DAY_W   = 120;
+  const HDR_H   = 30;
+  const CHART_H = TOTAL_HOURS * PX_PER_HOUR;
+  const W = TIME_W + DAYS.length * DAY_W;
+  const H = HDR_H + CHART_H;
+  const SCALE = 2;
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = W * SCALE;
+  canvas.height = H * SCALE;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(SCALE, SCALE);
+
+  // 背景
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  // ヘッダー背景
+  ctx.fillStyle = '#e5e7eb';
+  ctx.fillRect(0, 0, W, HDR_H);
+
+  // 曜日ヘッダー
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  DAYS.forEach((day, i) => {
+    const x = TIME_W + i * DAY_W;
+    ctx.strokeStyle = '#aaa';
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(x, 0, DAY_W, HDR_H);
+    ctx.fillStyle = '#1f2937';
+    ctx.fillText(day, x + DAY_W / 2, HDR_H / 2);
+  });
+
+  // コーナーセル区切り
+  ctx.strokeStyle = '#aaa';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(0, 0, TIME_W, HDR_H);
+
+  // 時刻ラベル & 水平線
+  for (let h = 0; h <= TOTAL_HOURS; h++) {
+    const y = HDR_H + h * PX_PER_HOUR;
+    const realH = (h + 3) % 24;
+    const isBand = BAND_H_SET.has(h);
+    const tlabel = (h >= 24 ? '翌' : '') + String(realH).padStart(2, '0') + ':00';
+
+    ctx.fillStyle = isBand ? '#111' : '#6b7280';
+    ctx.font = isBand ? 'bold 9px sans-serif' : '9px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(tlabel, TIME_W - 3, y);
+
+    if (h > 0 && h < TOTAL_HOURS) {
+      ctx.strokeStyle = isBand ? '#333' : '#e0e0e0';
+      ctx.lineWidth   = isBand ? 1.5 : 0.5;
+      ctx.beginPath();
+      ctx.moveTo(TIME_W, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+  }
+
+  // チャートエリア外枠（上辺 = 3:00 の帯線を兼ねる）
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(TIME_W, HDR_H, W - TIME_W, CHART_H);
+
+  // 縦の列区切り線
+  DAYS.forEach((_, i) => {
+    if (i === 0) return;
+    const x = TIME_W + i * DAY_W;
+    ctx.strokeStyle = '#aaa';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, HDR_H);
+    ctx.lineTo(x, HDR_H + CHART_H);
+    ctx.stroke();
+  });
+
+  // シフトバー
+  DAYS.forEach((day, di) => {
+    const colX = TIME_W + di * DAY_W;
+    const dayShifts = getEffectiveShiftsForDay(day);
+    const sorted = [...dayShifts].sort((a, b) => a.startMin - b.startMin);
+
+    const laneEnds = [];
+    const layouts = sorted.map(shift => {
+      let lane = laneEnds.findIndex(e => e <= shift.startMin);
+      if (lane === -1) lane = laneEnds.length;
+      laneEnds[lane] = shift.endMin;
+      return { shift, lane };
+    });
+    const numLanes = Math.max(1, laneEnds.length);
+
+    layouts.forEach(({ shift, lane }) => {
+      const emp = state.employees.find(e => e.id === shift.empId);
+      if (!emp) return;
+
+      const laneW = DAY_W / numLanes;
+      const barX  = colX + lane * laneW + 0.5;
+      const barW  = Math.max(2, laneW - 1);
+      const barY  = HDR_H + (shift.startMin / 60) * PX_PER_HOUR + 0.5;
+      const barH  = Math.max(3, ((shift.endMin - shift.startMin) / 60) * PX_PER_HOUR - 1);
+
+      ctx.fillStyle = emp.color;
+      canvasRoundRect(ctx, barX, barY, barW, barH, 2);
+      ctx.fill();
+
+      ctx.save();
+      canvasRoundRect(ctx, barX, barY, barW, barH, 2);
+      ctx.clip();
+
+      const nameLabel = emp.displayName || emp.name.slice(0, 2);
+      const startLabel = minToTimeShort(shift.startMin);
+
+      // 開始時刻（バー上端、小横書き）
+      if (barH >= 13) {
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.font = '7px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(startLabel, barX + 2, barY + 1.5);
+      }
+
+      // 従業員名（縦書き：文字ごとに描画）
+      const CHAR_SIZE = 11;
+      const CHAR_H    = CHAR_SIZE * 1.25;
+      const nameTopY  = barH >= 13 ? barY + 11 : barY + 2;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${CHAR_SIZE}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const cx = barX + barW / 2;
+      nameLabel.split('').forEach((ch, ci) => {
+        ctx.fillText(ch, cx, nameTopY + ci * CHAR_H);
+      });
+
+      ctx.restore();
+    });
+  });
+
+  return canvas;
+}
+
+function openImageFallback(canvas) {
+  const url = canvas.toDataURL('image/png');
+  const w = window.open('', '_blank');
+  if (w) {
+    w.document.open();
+    w.document.write(
+      '<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<title>シフト表</title></head>' +
+      '<body style="margin:0;background:#111;color:#fff;font-family:sans-serif">' +
+      '<p style="font-size:13px;text-align:center;padding:10px;margin:0">' +
+      '画像を長押し → 「写真に保存」または「共有」でLINEに送れます</p>' +
+      '<img src="' + url + '" style="width:100%;display:block">' +
+      '</body></html>'
+    );
+    w.document.close();
+  } else {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'シフト表.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+}
+
+async function exportChartImage() {
+  const canvas = generateChartCanvas();
+  canvas.toBlob(async blob => {
+    if (!blob) { alert('画像の生成に失敗しました'); return; }
+    const file = new File([blob], 'シフト表.png', { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'シフト表' });
+        return;
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+      }
+    }
+    openImageFallback(canvas);
+  }, 'image/png');
 }
 
 function renderPrintPreview() {
@@ -1144,6 +1364,9 @@ function init() {
     renderPrintArea();
     window.print();
   });
+
+  // === 画像保存 ===
+  document.getElementById('btn-save-image').addEventListener('click', exportChartImage);
 
   // === エクスポート ===
   document.getElementById('btn-export').addEventListener('click', exportData);

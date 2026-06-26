@@ -213,25 +213,47 @@ html, body {
   position: absolute;
   border-radius: 6px;
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #fff;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 2px 3px;
   overflow: hidden;
   cursor: pointer;
-  text-shadow: 0 1px 2px rgba(0,0,0,.3);
   box-shadow: 0 1px 3px rgba(0,0,0,.15);
   border: 2px solid rgba(255,255,255,0.55);
   min-height: 20px;
 }
 
-.bar-break {
-  font-size: 10px;
+.bar-start-time {
+  font-size: 7px;
   font-weight: 500;
-  opacity: 0.88;
+  color: rgba(255,255,255,0.88);
+  text-shadow: 0 1px 1px rgba(0,0,0,.25);
+  line-height: 1.1;
+  white-space: nowrap;
   flex-shrink: 0;
+}
+
+.bar-emp-name {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,.3);
+  overflow: hidden;
+  flex: 1;
+  line-height: 1.15;
+}
+
+.bar-break {
+  writing-mode: vertical-rl;
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.88);
+  text-shadow: 0 1px 1px rgba(0,0,0,.2);
+  flex-shrink: 0;
+  line-height: 1.2;
 }
 
 /* 不足オーバーレイ */
@@ -670,28 +692,30 @@ html, body {
   position: absolute;
   border-radius: 2px;
   overflow: hidden;
-  padding: 1px 3px;
+  padding: 1px 2px;
   color: #fff;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
+  align-items: flex-start;
+}
+
+.print-bar-start {
+  font-size: 7px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.88);
+  line-height: 1.1;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .print-bar-name {
-  font-size: 9px;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 8px;
   font-weight: 700;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.25;
-}
-
-.print-bar-time {
-  font-size: 7px;
-  white-space: nowrap;
-  overflow: hidden;
-  line-height: 1.25;
-  opacity: 0.88;
+  line-height: 1.2;
 }
 
 /* ========= モーダル ========= */
@@ -1005,8 +1029,8 @@ html, body {
     print-color-adjust: exact;
   }
 
-  #print-area .print-bar-name { font-size: 6pt; }
-  #print-area .print-bar-time { font-size: 5pt; }
+  #print-area .print-bar-start { font-size: 5pt; }
+  #print-area .print-bar-name  { font-size: 6pt; }
   #print-area .print-time-lbl { font-size: 6pt; }
   #print-area .print-time-bold { font-size: 7pt; font-weight: 700; color: #000; }
   #print-area .print-day-hdr  { font-size: 9pt; }
