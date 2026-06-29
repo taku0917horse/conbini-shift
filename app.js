@@ -8,11 +8,11 @@ const MAX_MIN     = 1620; // 27h * 60min
 // 不足リストの時間帯フィルタ定義（startMin/endMin は深夜3:00起点の分）
 const SHORTAGE_BANDS = [
   { id: 'all',   label: 'すべて',       startMin: 0,    endMin: Infinity },
-  { id: 'dawn',  label: '明朝 3–6',    startMin: 180,  endMin: 360 },
-  { id: 'morn',  label: '早朝 6–9',    startMin: 360,  endMin: 540 },
-  { id: 'day',   label: '日勤 9–17',   startMin: 540,  endMin: 1020 },
-  { id: 'eve',   label: '夕勤 17–22',  startMin: 1020, endMin: 1320 },
-  { id: 'night', label: '夜勤 22–翌3', startMin: 1320, endMin: 1620 },
+  { id: 'dawn',  label: '明朝 3–6',    startMin: 0,    endMin: 180 },
+  { id: 'morn',  label: '早朝 6–9',    startMin: 180,  endMin: 360 },
+  { id: 'day',   label: '日勤 9–17',   startMin: 360,  endMin: 840 },
+  { id: 'eve',   label: '夕勤 17–22',  startMin: 840,  endMin: 1140 },
+  { id: 'night', label: '夜勤 22–翌3', startMin: 1140, endMin: 1620 },
 ];
 let shortageFilterId = 'all';
 
