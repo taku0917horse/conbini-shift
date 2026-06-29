@@ -670,7 +670,7 @@ function buildPrintChart() {
       lanesDiv.appendChild(bar);
     });
 
-    // 不足オーバーレイ（バーの上に重ねる）
+    // 不足オーバーレイ（バーの背後に配置）
     getShortageOverlays(day).forEach(({ startMin, endMin, isEmpty }) => {
       const ov = document.createElement('div');
       ov.className = 'print-shortage-ov' + (isEmpty ? ' print-shortage-ov-empty' : '');
@@ -786,6 +786,19 @@ function generateChartCanvas() {
     ctx.stroke();
   });
 
+  // 不足オーバーレイ（バーの背後に描画）
+  DAYS.forEach((day, di) => {
+    const colX = TIME_W + di * DAY_W;
+    getShortageOverlays(day).forEach(({ startMin, endMin, isEmpty }) => {
+      const oy = HDR_H + (startMin / 60) * PX_PER_HOUR;
+      const oh = ((endMin - startMin) / 60) * PX_PER_HOUR;
+      ctx.fillStyle = isEmpty ? 'rgba(220,38,38,0.32)' : 'rgba(252,165,165,0.5)';
+      ctx.fillRect(colX, oy, DAY_W, oh);
+      ctx.fillStyle = isEmpty ? '#dc2626' : '#f87171';
+      ctx.fillRect(colX, oy, 3, oh);
+    });
+  });
+
   // シフトバー
   DAYS.forEach((day, di) => {
     const colX = TIME_W + di * DAY_W;
@@ -872,20 +885,6 @@ function generateChartCanvas() {
       });
 
       ctx.restore();
-    });
-  });
-
-  // 不足オーバーレイ（バーの上に描画）
-  DAYS.forEach((day, di) => {
-    const colX = TIME_W + di * DAY_W;
-    getShortageOverlays(day).forEach(({ startMin, endMin, isEmpty }) => {
-      const oy = HDR_H + (startMin / 60) * PX_PER_HOUR;
-      const oh = ((endMin - startMin) / 60) * PX_PER_HOUR;
-      ctx.fillStyle = isEmpty ? 'rgba(220,38,38,0.32)' : 'rgba(252,165,165,0.5)';
-      ctx.fillRect(colX, oy, DAY_W, oh);
-      // 左端に太い縦線（画面チャートの border-left 相当）
-      ctx.fillStyle = isEmpty ? '#dc2626' : '#f87171';
-      ctx.fillRect(colX, oy, 3, oh);
     });
   });
 

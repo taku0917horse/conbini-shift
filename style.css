@@ -199,6 +199,7 @@ html, body {
 #shift-lanes {
   flex: 1;
   position: relative;
+  z-index: 1;
   min-height: calc(var(--hour-h) * 27 + 1px); /* JSのインライン指定で上書きされる */
 }
 
@@ -727,7 +728,7 @@ html, body {
 
 .print-shortage-ov {
   position: absolute;
-  z-index: 2;
+  z-index: 0;
   left: 0;
   right: 0;
   pointer-events: none;
