@@ -706,9 +706,9 @@ function canvasRoundRect(ctx, x, y, w, h, r) {
 function generateChartCanvas() {
   const BAND_H_SET = new Set([0, 3, 6, 10, 14, 19, 24]);
   const PX_PER_HOUR = 50;
-  const TIME_W  = 54;
+  const TIME_W  = 60;
   const DAY_W   = 160; // 時刻（例:「12:30」）が切れないよう幅を確保
-  const HDR_H   = 30;
+  const HDR_H   = 34;
   const CHART_H = TOTAL_HOURS * PX_PER_HOUR;
   const W = TIME_W + DAYS.length * DAY_W;
   const H = HDR_H + CHART_H;
@@ -729,7 +729,7 @@ function generateChartCanvas() {
   ctx.fillRect(0, 0, W, HDR_H);
 
   // 曜日ヘッダー
-  ctx.font = 'bold 16px sans-serif';
+  ctx.font = 'bold 19px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   DAYS.forEach((day, i) => {
@@ -754,7 +754,7 @@ function generateChartCanvas() {
     const tlabel = (h >= 24 ? '翌' : '') + String(realH).padStart(2, '0') + ':00';
 
     ctx.fillStyle = isBand ? '#111' : '#6b7280';
-    ctx.font = isBand ? 'bold 11px sans-serif' : '11px sans-serif';
+    ctx.font = isBand ? 'bold 13px sans-serif' : '13px sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     ctx.fillText(tlabel, TIME_W - 3, y);
@@ -844,8 +844,8 @@ function generateChartCanvas() {
       const startLabel = minToTimeShort(shift.startMin);
       const endLabel   = minToTimeShort(shift.endMin);
 
-      const TIME_FONT   = '10px sans-serif';
-      const TIME_H      = 14; // 時刻1行分の高さ(px)
+      const TIME_FONT   = '13px sans-serif';
+      const TIME_H      = 18; // 時刻1行分の高さ(px)
       const TIME_MARGIN = 2;
 
       // テキストに影を付けて視認性を上げる
@@ -873,7 +873,7 @@ function generateChartCanvas() {
       }
 
       // 従業員名（縦書き：文字ごとに描画、開始・終了時刻の間に配置）
-      const CHAR_SIZE = 14;
+      const CHAR_SIZE = 18;
       const CHAR_H    = CHAR_SIZE * 1.25;
       const hasStart  = barH >= TIME_H + 2;
       const hasEnd    = barH >= TIME_H * 2 + 4;
