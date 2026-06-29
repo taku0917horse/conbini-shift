@@ -75,6 +75,7 @@
       <!-- サブタブ: 不足リストを先頭に -->
       <div id="req-subtab-bar">
         <button class="req-subtab active" data-subtab="shortage">不足リスト</button>
+        <button class="req-subtab" data-subtab="tentative">募集中</button>
         <button class="req-subtab" data-subtab="rules">ルール設定</button>
       </div>
       <!-- 不足リスト（デフォルト表示） -->
@@ -88,6 +89,10 @@
           <button class="shortage-filter-btn" data-band="night">夜勤 22–翌3</button>
         </div>
         <div id="shortage-list"></div>
+      </div>
+      <!-- 募集中リスト -->
+      <div id="req-sub-tentative" class="req-subview hidden">
+        <div id="tentative-list"></div>
       </div>
       <!-- ルール設定（全曜日一覧） -->
       <div id="req-sub-rules" class="req-subview hidden">
@@ -173,6 +178,15 @@
         </div>
         <input type="number" id="shift-break" min="0" max="240" step="5" value="0" />
       </div>
+      <div class="form-group hidden" id="tentative-group">
+        <label class="toggle-row">
+          <span>仮（募集中）</span>
+          <span class="toggle-switch">
+            <input type="checkbox" id="shift-is-tentative" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </span>
+        </label>
+      </div>
       <div class="modal-actions">
         <button id="btn-shift-save" class="btn-primary">保存</button>
         <button id="btn-shift-delete" class="btn-danger hidden">削除</button>
@@ -254,6 +268,15 @@
       <div class="form-group">
         <label>メモ <span class="form-hint">（覚え書き。判定には使いません）</span></label>
         <textarea id="emp-memo" rows="2" maxlength="200" placeholder="例: 火曜NG、テスト期間注意"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="toggle-row">
+          <span>店長関連 <span class="form-hint">（仮シフトを立てられる）</span></span>
+          <span class="toggle-switch">
+            <input type="checkbox" id="emp-is-manager" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </span>
+        </label>
       </div>
       <div class="modal-actions">
         <button id="btn-emp-save" class="btn-primary">保存</button>

@@ -386,7 +386,7 @@ function renderShiftChart() {
     if (!emp) return;
 
     const bar = document.createElement('div');
-    bar.className = 'shift-bar';
+    bar.className = 'shift-bar' + (shift.isTentative ? ' shift-bar-tentative' : '');
     bar.style.cssText = [
       `top:${minToPx(shift.startMin)}px`,
       `height:${Math.max(20, minToPx(shift.endMin - shift.startMin))}px`,
@@ -445,6 +445,12 @@ function makeEmpListItem(emp) {
   const nameSpan = document.createElement('span');
   nameSpan.className   = 'emp-name';
   nameSpan.textContent = emp.name;
+  if (emp.isManager) {
+    const mgBadge = document.createElement('span');
+    mgBadge.className   = 'manager-badge';
+    mgBadge.textContent = '店長';
+    nameSpan.appendChild(mgBadge);
+  }
   const dnSpan = document.createElement('span');
   dnSpan.className   = 'emp-dn';
   dnSpan.textContent = `略称: ${dn}${memoSnip}`;
@@ -601,6 +607,52 @@ function renderShortageList() {
       ? `<div class="empty-msg" style="padding-top:48px">${band.label} の不足なし</div>`
       : '<div class="empty-msg" style="padding-top:48px">不足なし</div>';
     list.innerHTML = msg;
+  }
+}
+
+// ========= 募集中リスト描画 =========
+function renderTentativeList() {
+  const list = document.getElementById('tentative-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  let hasAny = false;
+  DAYS.forEach(day => {
+    const dayShifts = state.shifts
+      .filter(s => s.day === day && s.isTentative)
+      .sort((a, b) => a.startMin - b.startMin);
+    if (dayShifts.length === 0) return;
+    hasAny = true;
+
+    const section = document.createElement('div');
+    section.className = 'shortage-section';
+
+    const title = document.createElement('div');
+    title.className   = 'shortage-day-title';
+    title.textContent = day + '曜日';
+    section.appendChild(title);
+
+    dayShifts.forEach(shift => {
+      const emp = state.employees.find(e => e.id === shift.empId);
+      if (!emp) return;
+      const row = document.createElement('div');
+      row.className = 'tentative-row';
+      row.innerHTML = `
+        <div class="tentative-info">
+          <span class="shortage-time">${minToTime(shift.startMin)}〜${minToTime(shift.endMin)}</span>
+          <span class="tentative-name">${emp.name}が仮で対応中</span>
+        </div>
+        <span class="tentative-badge">募集中</span>
+      `;
+      row.addEventListener('click', () => openShiftModal(shift.id));
+      section.appendChild(row);
+    });
+
+    list.appendChild(section);
+  });
+
+  if (!hasAny) {
+    list.innerHTML = '<div class="empty-msg" style="padding-top:48px">募集中のシフトなし</div>';
   }
 }
 
@@ -1053,6 +1105,7 @@ function openShiftModal(shiftId = null, prefill = null) {
     startIn.value = minToTimeInput(shift.startMin);
     endIn.value   = minToTimeInput(shift.endMin);
     breakIn.value = shift.breakMin || 0;
+    document.getElementById('shift-is-tentative').checked = shift.isTentative || false;
     delBtn.classList.remove('hidden');
     renderDayToggles([shift.day], true);
   } else {
@@ -1072,7 +1125,20 @@ function openShiftModal(shiftId = null, prefill = null) {
 
   updateBreakBtnState();
   updateShiftSaveBtnState();
+  updateTentativeGroup();
   document.getElementById('modal-shift').classList.remove('hidden');
+}
+
+function updateTentativeGroup() {
+  const empId = document.getElementById('shift-emp-select').value;
+  const emp   = state.employees.find(e => e.id === empId);
+  const group = document.getElementById('tentative-group');
+  if (emp && emp.isManager) {
+    group.classList.remove('hidden');
+  } else {
+    group.classList.add('hidden');
+    document.getElementById('shift-is-tentative').checked = false;
+  }
 }
 
 function closeShiftModal() {
@@ -1119,6 +1185,7 @@ function openEmpModal(empId = null) {
   const memoIn = document.getElementById('emp-memo');
   const delBtn = document.getElementById('btn-emp-delete');
 
+  const isManagerChk = document.getElementById('emp-is-manager');
   if (empId) {
     const emp = state.employees.find(e => e.id === empId);
     document.getElementById('modal-emp-title').textContent = '従業員編集';
@@ -1127,6 +1194,7 @@ function openEmpModal(empId = null) {
     memoIn.value              = emp.memo || '';
     state.selectedColor       = emp.color;
     state.selectedCategory    = emp.category || '日勤';
+    isManagerChk.checked      = emp.isManager || false;
     delBtn.classList.remove('hidden');
   } else {
     document.getElementById('modal-emp-title').textContent = '従業員追加';
@@ -1135,6 +1203,7 @@ function openEmpModal(empId = null) {
     memoIn.value              = '';
     state.selectedColor       = COLORS[state.employees.length % COLORS.length];
     state.selectedCategory    = '日勤';
+    isManagerChk.checked      = false;
     delBtn.classList.add('hidden');
   }
   renderCategoryBtns();
@@ -1294,11 +1363,19 @@ function init() {
   });
   document.getElementById('shift-break').addEventListener('input', updateBreakBtnState);
 
+  // 従業員切替時に仮トグルの表示を更新
+  document.getElementById('shift-emp-select').addEventListener('change', updateTentativeGroup);
+
   document.getElementById('btn-shift-save').addEventListener('click', () => {
     const empId    = document.getElementById('shift-emp-select').value;
     const startStr = document.getElementById('shift-start').value;
     const endStr   = document.getElementById('shift-end').value;
     if (!empId || !startStr || !endStr) return;
+
+    const emp         = state.employees.find(e => e.id === empId);
+    const isTentative = (emp && emp.isManager)
+      ? document.getElementById('shift-is-tentative').checked
+      : false;
 
     const startMin = timeToMin(startStr);
     let endMin     = timeToMin(endStr);
@@ -1307,16 +1384,17 @@ function init() {
 
     if (state.editingShiftId) {
       const s = state.shifts.find(x => x.id === state.editingShiftId);
-      Object.assign(s, { empId, startMin, endMin, breakMin });
+      Object.assign(s, { empId, startMin, endMin, breakMin, isTentative });
     } else {
       const days = getSelectedDays();
       if (days.length === 0) return;
-      days.forEach(day => state.shifts.push({ id: uid(), empId, day, startMin, endMin, breakMin }));
+      days.forEach(day => state.shifts.push({ id: uid(), empId, day, startMin, endMin, breakMin, isTentative }));
     }
     saveShifts();
     closeShiftModal();
     renderShiftChart();
     renderShortageList();
+    renderTentativeList();
   });
 
   document.getElementById('btn-shift-delete').addEventListener('click', () => {
@@ -1326,6 +1404,7 @@ function init() {
     closeShiftModal();
     renderShiftChart();
     renderShortageList();
+    renderTentativeList();
   });
 
   document.getElementById('btn-shift-cancel').addEventListener('click', closeShiftModal);
@@ -1360,6 +1439,7 @@ function init() {
     const name        = document.getElementById('emp-name').value.trim();
     const displayName = document.getElementById('emp-display-name').value.trim();
     const memo        = document.getElementById('emp-memo').value.trim();
+    const isManager   = document.getElementById('emp-is-manager').checked;
     if (!name) return;
     if (state.editingEmpId) {
       const emp = state.employees.find(e => e.id === state.editingEmpId);
@@ -1368,12 +1448,19 @@ function init() {
       emp.color       = state.selectedColor;
       emp.category    = state.selectedCategory;
       emp.memo        = memo;
+      emp.isManager   = isManager;
+      // 店長フラグが外れたら仮フラグも解除
+      if (!isManager) {
+        state.shifts.filter(s => s.empId === emp.id).forEach(s => { s.isTentative = false; });
+        saveShifts();
+      }
     } else {
       state.employees.push({
         id: uid(), name, displayName,
         color: state.selectedColor,
         category: state.selectedCategory,
         memo,
+        isManager,
       });
     }
     saveEmployees();
@@ -1404,8 +1491,9 @@ function init() {
       btn.classList.add('active');
       document.querySelectorAll('.req-subview').forEach(v => v.classList.add('hidden'));
       document.getElementById(`req-sub-${btn.dataset.subtab}`).classList.remove('hidden');
-      if (btn.dataset.subtab === 'shortage') renderShortageList();
-      if (btn.dataset.subtab === 'rules')    renderReqRules();
+      if (btn.dataset.subtab === 'shortage')  renderShortageList();
+      if (btn.dataset.subtab === 'tentative') renderTentativeList();
+      if (btn.dataset.subtab === 'rules')     renderReqRules();
     });
   });
 
