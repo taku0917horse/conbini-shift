@@ -774,18 +774,6 @@ function generateChartCanvas() {
   ctx.lineWidth = 2;
   ctx.strokeRect(TIME_W, HDR_H, W - TIME_W, CHART_H);
 
-  // 縦の列区切り線（曜日間の太い縦罫線、ヘッダーから下端まで）
-  DAYS.forEach((_, i) => {
-    if (i === 0) return;
-    const x = TIME_W + i * DAY_W;
-    ctx.strokeStyle = '#111';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, H);
-    ctx.stroke();
-  });
-
   // 不足オーバーレイ（バーの背後に描画）
   DAYS.forEach((day, di) => {
     const colX = TIME_W + di * DAY_W;
@@ -892,6 +880,18 @@ function generateChartCanvas() {
 
       ctx.restore();
     });
+  });
+
+  // 縦の列区切り線（シフトバーより前面に描画）
+  DAYS.forEach((_, i) => {
+    if (i === 0) return;
+    const x = TIME_W + i * DAY_W;
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
   });
 
   return canvas;
@@ -1446,12 +1446,6 @@ function init() {
 
   document.getElementById('modal-req').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeReqModal();
-  });
-
-  // === 印刷 ===
-  document.getElementById('btn-print').addEventListener('click', () => {
-    renderPrintArea();
-    window.print();
   });
 
   // === 画像保存 ===
