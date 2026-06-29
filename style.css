@@ -1048,11 +1048,14 @@ html, body {
     position: fixed;
     inset: 0;
     background: #fff;
-    padding: 6mm;
+    padding: 4mm;
   }
 
-  /* 印刷時: 1時間あたりの高さを mm 単位に切り替え（27h × 6mm = 162mm、A4 横に収まる） */
-  :root { --print-hour-h: 6mm; }
+  /* 印刷時: 1時間あたりの高さを mm 単位に切り替え（27h × 6.5mm = 175.5mm、A4 横に収まる） */
+  :root { --print-hour-h: 6.5mm; }
+
+  #print-area .print-time-axis,
+  #print-area .print-corner { width: 12mm; }
 
   #print-area .print-bar {
     -webkit-print-color-adjust: exact;
@@ -1060,11 +1063,11 @@ html, body {
   }
 
   #print-area .print-bar-start,
-  #print-area .print-bar-end   { font-size: 5.5pt; }
-  #print-area .print-bar-name  { font-size: 6pt; }
-  #print-area .print-time-lbl { font-size: 6pt; }
-  #print-area .print-time-bold { font-size: 7pt; font-weight: 700; color: #000; }
-  #print-area .print-day-hdr  { font-size: 9pt; }
+  #print-area .print-bar-end   { font-size: 7.5pt; }
+  #print-area .print-bar-name  { font-size: 9pt; }
+  #print-area .print-time-lbl  { font-size: 7pt; }
+  #print-area .print-time-bold { font-size: 8pt; font-weight: 700; color: #000; }
+  #print-area .print-day-hdr   { font-size: 11pt; }
 
-  @page { size: A4 landscape; margin: 6mm; }
+  @page { size: A4 landscape; margin: 8mm; }
 }
