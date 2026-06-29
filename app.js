@@ -559,10 +559,10 @@ function renderShortageList() {
   DAYS.forEach(day => {
     let shortages = computeShortages(day);
 
-    // 時間帯フィルタ（不足区間がバンドに重なるものだけ表示）
+    // 時間帯フィルタ（不足の開始時刻がバンド内に収まるものだけ表示）
     if (band.id !== 'all') {
       shortages = shortages.filter(
-        s => s.startMin < band.endMin && s.endMin > band.startMin
+        s => s.startMin >= band.startMin && s.startMin < band.endMin
       );
     }
 
