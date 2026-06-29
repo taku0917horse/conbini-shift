@@ -729,7 +729,7 @@ function generateChartCanvas() {
   ctx.fillRect(0, 0, W, HDR_H);
 
   // 曜日ヘッダー
-  ctx.font = 'bold 14px sans-serif';
+  ctx.font = 'bold 16px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   DAYS.forEach((day, i) => {
@@ -754,14 +754,14 @@ function generateChartCanvas() {
     const tlabel = (h >= 24 ? '翌' : '') + String(realH).padStart(2, '0') + ':00';
 
     ctx.fillStyle = isBand ? '#111' : '#6b7280';
-    ctx.font = isBand ? 'bold 9px sans-serif' : '9px sans-serif';
+    ctx.font = isBand ? 'bold 11px sans-serif' : '11px sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     ctx.fillText(tlabel, TIME_W - 3, y);
 
     if (h > 0 && h < TOTAL_HOURS) {
       ctx.strokeStyle = isBand ? '#333' : '#e0e0e0';
-      ctx.lineWidth   = isBand ? 1.5 : 0.5;
+      ctx.lineWidth   = isBand ? 2 : 0.5;
       ctx.beginPath();
       ctx.moveTo(TIME_W, y);
       ctx.lineTo(W, y);
@@ -771,7 +771,7 @@ function generateChartCanvas() {
 
   // チャートエリア外枠（上辺 = 3:00 の帯線を兼ねる）
   ctx.strokeStyle = '#333';
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 2;
   ctx.strokeRect(TIME_W, HDR_H, W - TIME_W, CHART_H);
 
   // 縦の列区切り線（曜日間の太い縦罫線）
@@ -779,7 +779,7 @@ function generateChartCanvas() {
     if (i === 0) return;
     const x = TIME_W + i * DAY_W;
     ctx.strokeStyle = '#333';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(x, HDR_H);
     ctx.lineTo(x, HDR_H + CHART_H);
@@ -827,12 +827,12 @@ function generateChartCanvas() {
       ctx.fillStyle = emp.color;
       canvasRoundRect(ctx, barX, barY, barW, barH, 2);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
       ctx.lineWidth = 3;
       canvasRoundRect(ctx, barX, barY, barW, barH, 2);
       ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.lineWidth = 2.5;
       canvasRoundRect(ctx, barX, barY, barW, barH, 2);
       ctx.stroke();
 
@@ -844,13 +844,19 @@ function generateChartCanvas() {
       const startLabel = minToTimeShort(shift.startMin);
       const endLabel   = minToTimeShort(shift.endMin);
 
-      const TIME_FONT   = '7.5px sans-serif';
-      const TIME_H      = 11; // 時刻1行分の高さ(px)
-      const TIME_MARGIN = 1.5;
+      const TIME_FONT   = '10px sans-serif';
+      const TIME_H      = 14; // 時刻1行分の高さ(px)
+      const TIME_MARGIN = 2;
+
+      // テキストに影を付けて視認性を上げる
+      ctx.shadowColor   = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur    = 2;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 1;
 
       // 開始時刻（バー上端）
       if (barH >= TIME_H + 2) {
-        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
         ctx.font = TIME_FONT;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
@@ -859,7 +865,7 @@ function generateChartCanvas() {
 
       // 終了時刻（バー下端）
       if (barH >= TIME_H * 2 + 4) {
-        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
         ctx.font = TIME_FONT;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
@@ -867,7 +873,7 @@ function generateChartCanvas() {
       }
 
       // 従業員名（縦書き：文字ごとに描画、開始・終了時刻の間に配置）
-      const CHAR_SIZE = 11;
+      const CHAR_SIZE = 14;
       const CHAR_H    = CHAR_SIZE * 1.25;
       const hasStart  = barH >= TIME_H + 2;
       const hasEnd    = barH >= TIME_H * 2 + 4;
