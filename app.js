@@ -774,15 +774,15 @@ function generateChartCanvas() {
   ctx.lineWidth = 2;
   ctx.strokeRect(TIME_W, HDR_H, W - TIME_W, CHART_H);
 
-  // 縦の列区切り線（曜日間の太い縦罫線）
+  // 縦の列区切り線（曜日間の太い縦罫線、ヘッダーから下端まで）
   DAYS.forEach((_, i) => {
     if (i === 0) return;
     const x = TIME_W + i * DAY_W;
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(x, HDR_H);
-    ctx.lineTo(x, HDR_H + CHART_H);
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
     ctx.stroke();
   });
 
