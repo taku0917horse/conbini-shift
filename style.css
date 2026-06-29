@@ -519,6 +519,35 @@ html, body {
   overflow-y: auto;
 }
 
+/* 時間帯フィルタバー */
+#shortage-filter-bar {
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#shortage-filter-bar::-webkit-scrollbar { display: none; }
+
+.shortage-filter-btn {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.shortage-filter-btn.active {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
 #shortage-list {
   padding: 8px 16px;
 }
@@ -546,9 +575,23 @@ html, body {
   border-left: 4px solid var(--danger);
 }
 
+.shortage-row-tappable {
+  cursor: pointer;
+  active-color: var(--danger-light);
+}
+.shortage-row-tappable:active {
+  opacity: 0.7;
+}
+
 .shortage-time {
   font-size: 15px;
   font-weight: 600;
+}
+
+.shortage-row-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .shortage-badge {
@@ -558,6 +601,21 @@ html, body {
   background: var(--danger-light);
   padding: 4px 10px;
   border-radius: 20px;
+}
+
+.shortage-add-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 1;
 }
 
 /* ========= 印刷・データビュー ========= */

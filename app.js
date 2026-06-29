@@ -5,6 +5,17 @@ const DAYS = ['月', '火', '水', '木', '金', '土', '日'];
 const TOTAL_HOURS = 27;   // 3:00〜翌6:00 の 27 時間
 const MAX_MIN     = 1620; // 27h * 60min
 
+// 不足リストの時間帯フィルタ定義（startMin/endMin は深夜3:00起点の分）
+const SHORTAGE_BANDS = [
+  { id: 'all',   label: 'すべて',       startMin: 0,    endMin: Infinity },
+  { id: 'dawn',  label: '明朝 3–6',    startMin: 180,  endMin: 360 },
+  { id: 'morn',  label: '早朝 6–9',    startMin: 360,  endMin: 540 },
+  { id: 'day',   label: '日勤 9–17',   startMin: 540,  endMin: 1020 },
+  { id: 'eve',   label: '夕勤 17–22',  startMin: 1020, endMin: 1320 },
+  { id: 'night', label: '夜勤 22–翌3', startMin: 1320, endMin: 1620 },
+];
+let shortageFilterId = 'all';
+
 // 1時間あたりの表示高さ（px）。3段階: コンパクト / 標準 / ゆったり
 const HOUR_SIZES       = [24, 36, 48];
 const HOUR_SIZE_LABELS = ['コンパクト', '標準', 'ゆったり'];
@@ -537,9 +548,24 @@ function renderShortageList() {
   const list = document.getElementById('shortage-list');
   list.innerHTML = '';
 
+  // フィルタボタンのアクティブ状態を同期
+  document.querySelectorAll('.shortage-filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.band === shortageFilterId);
+  });
+
+  const band = SHORTAGE_BANDS.find(b => b.id === shortageFilterId);
+
   let hasAny = false;
   DAYS.forEach(day => {
-    const shortages = computeShortages(day);
+    let shortages = computeShortages(day);
+
+    // 時間帯フィルタ（不足区間がバンドに重なるものだけ表示）
+    if (band.id !== 'all') {
+      shortages = shortages.filter(
+        s => s.startMin < band.endMin && s.endMin > band.startMin
+      );
+    }
+
     if (shortages.length === 0) return;
     hasAny = true;
 
@@ -553,11 +579,17 @@ function renderShortageList() {
 
     shortages.forEach(s => {
       const row = document.createElement('div');
-      row.className = 'shortage-row';
+      row.className = 'shortage-row shortage-row-tappable';
       row.innerHTML = `
         <span class="shortage-time">${minToTime(s.startMin)}〜${minToTime(s.endMin)}</span>
-        <span class="shortage-badge">あと${s.short}人</span>
+        <div class="shortage-row-right">
+          <span class="shortage-badge">あと${s.short}人</span>
+          <span class="shortage-add-btn">＋</span>
+        </div>
       `;
+      row.addEventListener('click', () => {
+        openShiftModal(null, { day, startMin: s.startMin, endMin: s.endMin });
+      });
       section.appendChild(row);
     });
 
@@ -565,7 +597,10 @@ function renderShortageList() {
   });
 
   if (!hasAny) {
-    list.innerHTML = '<div class="empty-msg" style="padding-top:48px">不足なし</div>';
+    const msg = band.id !== 'all'
+      ? `<div class="empty-msg" style="padding-top:48px">${band.label} の不足なし</div>`
+      : '<div class="empty-msg" style="padding-top:48px">不足なし</div>';
+    list.innerHTML = msg;
   }
 }
 
@@ -993,7 +1028,7 @@ function updateBreakBtnState() {
 }
 
 // ========= モーダル: 勤務 =========
-function openShiftModal(shiftId = null) {
+function openShiftModal(shiftId = null, prefill = null) {
   state.editingShiftId = shiftId;
   const empSel  = document.getElementById('shift-emp-select');
   const startIn = document.getElementById('shift-start');
@@ -1022,11 +1057,17 @@ function openShiftModal(shiftId = null) {
     renderDayToggles([shift.day], true);
   } else {
     document.getElementById('modal-shift-title').textContent = '勤務追加';
-    startIn.value = '09:00';
-    endIn.value   = '17:00';
+    if (prefill) {
+      startIn.value = minToTimeInput(prefill.startMin);
+      endIn.value   = minToTimeInput(prefill.endMin);
+      renderDayToggles([prefill.day], false);
+    } else {
+      startIn.value = '09:00';
+      endIn.value   = '17:00';
+      renderDayToggles([state.currentDay], false);
+    }
     breakIn.value = 0;
     delBtn.classList.add('hidden');
-    renderDayToggles([state.currentDay], false);
   }
 
   updateBreakBtnState();
@@ -1275,6 +1316,7 @@ function init() {
     saveShifts();
     closeShiftModal();
     renderShiftChart();
+    renderShortageList();
   });
 
   document.getElementById('btn-shift-delete').addEventListener('click', () => {
@@ -1283,6 +1325,7 @@ function init() {
     saveShifts();
     closeShiftModal();
     renderShiftChart();
+    renderShortageList();
   });
 
   document.getElementById('btn-shift-cancel').addEventListener('click', closeShiftModal);
@@ -1363,6 +1406,14 @@ function init() {
       document.getElementById(`req-sub-${btn.dataset.subtab}`).classList.remove('hidden');
       if (btn.dataset.subtab === 'shortage') renderShortageList();
       if (btn.dataset.subtab === 'rules')    renderReqRules();
+    });
+  });
+
+  // 不足リスト 時間帯フィルタ
+  document.querySelectorAll('.shortage-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      shortageFilterId = btn.dataset.band;
+      renderShortageList();
     });
   });
 
