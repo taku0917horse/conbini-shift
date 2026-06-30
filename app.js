@@ -652,23 +652,26 @@ function renderTentativeList() {
 
   let hasAny = false;
   DAYS.forEach(day => {
-    const dayShifts = state.shifts
-      .filter(s => {
-        if (s.day !== day) return false;
-        const range = getTentativeRange(s);
-        if (!range) return false;
-        if (band.id !== 'all') {
-          return range.start >= band.startMin && range.start < band.endMin;
+    // 仮の時間範囲を持つシフトについて、バンドとの重複部分を計算する
+    const entries = [];
+    state.shifts.forEach(s => {
+      if (s.day !== day) return;
+      const range = getTentativeRange(s);
+      if (!range) return;
+      if (band.id === 'all') {
+        entries.push({ shift: s, dispStart: range.start, dispEnd: range.end });
+      } else {
+        // バンド境界でクリップして重複部分だけを表示
+        const clippedStart = Math.max(range.start, band.startMin);
+        const clippedEnd   = Math.min(range.end, band.endMin);
+        if (clippedEnd > clippedStart) {
+          entries.push({ shift: s, dispStart: clippedStart, dispEnd: clippedEnd });
         }
-        return true;
-      })
-      .sort((a, b) => {
-        const ra = getTentativeRange(a);
-        const rb = getTentativeRange(b);
-        return ra.start - rb.start;
-      });
+      }
+    });
+    entries.sort((a, b) => a.dispStart - b.dispStart);
 
-    if (dayShifts.length === 0) return;
+    if (entries.length === 0) return;
     hasAny = true;
 
     const section = document.createElement('div');
@@ -679,15 +682,14 @@ function renderTentativeList() {
     title.textContent = day + '曜日';
     section.appendChild(title);
 
-    dayShifts.forEach(shift => {
+    entries.forEach(({ shift, dispStart, dispEnd }) => {
       const emp = state.employees.find(e => e.id === shift.empId);
       if (!emp) return;
-      const range = getTentativeRange(shift);
       const row = document.createElement('div');
       row.className = 'tentative-row';
       row.innerHTML = `
         <div class="tentative-info">
-          <span class="shortage-time">${minToTime(range.start)}〜${minToTime(range.end)}</span>
+          <span class="shortage-time">${minToTime(dispStart)}〜${minToTime(dispEnd)}</span>
           <span class="tentative-name">${emp.name}が仮で対応中</span>
         </div>
         <span class="tentative-badge">募集中</span>
