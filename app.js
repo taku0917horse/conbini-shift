@@ -14,7 +14,8 @@ const SHORTAGE_BANDS = [
   { id: 'eve',   label: '夕勤 17–22',  startMin: 840,  endMin: 1140 },
   { id: 'night', label: '夜勤 22–翌3', startMin: 1140, endMin: 1620 },
 ];
-let shortageFilterId = 'all';
+let shortageFilterId  = 'all';
+let tentativeFilterId = 'all';
 
 // 1時間あたりの表示高さ（px）。3段階: コンパクト / 標準 / ゆったり
 const HOUR_SIZES       = [24, 36, 48];
@@ -65,8 +66,6 @@ const PRESETS = [
   ['13-17', '13:00', '17:00'],
   ['17-22', '17:00', '22:00'],
   ['22-3',  '22:00', '03:00'],
-  ['22-4',  '22:00', '04:00'],
-  ['22-6',  '22:00', '06:00'],
 ];
 
 const COLORS = [
@@ -116,6 +115,17 @@ function saveEmployees() { store.save('employees', state.employees); touchDataDa
 function saveShifts()    { store.save('shifts', state.shifts); touchDataDate(); }
 function saveReqs()      { store.save('requirements', state.requirements); touchDataDate(); }
 function uid()           { return Math.random().toString(36).slice(2, 10); }
+
+// 仮（募集中）の時間範囲を返す。旧 isTentative フラグは全範囲として移行。
+function getTentativeRange(shift) {
+  if (shift.tentativeStart != null && shift.tentativeEnd != null) {
+    return { start: shift.tentativeStart, end: shift.tentativeEnd };
+  }
+  if (shift.isTentative) {
+    return { start: shift.startMin, end: shift.endMin };
+  }
+  return null;
+}
 
 // ========= 日時フォーマット =========
 function formatDatetime(d) {
@@ -385,8 +395,10 @@ function renderShiftChart() {
     const emp = state.employees.find(e => e.id === shift.empId);
     if (!emp) return;
 
+    const tentRange = getTentativeRange(shift);
+
     const bar = document.createElement('div');
-    bar.className = 'shift-bar' + (shift.isTentative ? ' shift-bar-tentative' : '');
+    bar.className = 'shift-bar';
     bar.style.cssText = [
       `top:${minToPx(shift.startMin)}px`,
       `height:${Math.max(20, minToPx(shift.endMin - shift.startMin))}px`,
@@ -394,6 +406,21 @@ function renderShiftChart() {
       `width:${laneW * 100 - 1}%`,
       `background:${emp.color}`,
     ].join(';');
+
+    // 仮の時間範囲オーバーレイ（バー内に斜線パターンで表示）
+    if (tentRange) {
+      const barDuration = shift.endMin - shift.startMin;
+      const oStart = Math.max(0, tentRange.start - shift.startMin);
+      const oEnd   = Math.min(barDuration, tentRange.end - shift.startMin);
+      if (barDuration > 0 && oEnd > oStart) {
+        const overlay = document.createElement('div');
+        overlay.className = 'shift-bar-tentative-overlay';
+        overlay.style.top    = `${(oStart / barDuration * 100).toFixed(2)}%`;
+        overlay.style.height = `${((oEnd - oStart) / barDuration * 100).toFixed(2)}%`;
+        bar.appendChild(overlay);
+      }
+    }
+
     const startEl = document.createElement('span');
     startEl.className   = 'bar-start-time';
     startEl.textContent = minToTimeShort(shift.startMin);
@@ -616,11 +643,31 @@ function renderTentativeList() {
   if (!list) return;
   list.innerHTML = '';
 
+  // フィルタボタンのアクティブ状態を同期
+  document.querySelectorAll('.tentative-filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.band === tentativeFilterId);
+  });
+
+  const band = SHORTAGE_BANDS.find(b => b.id === tentativeFilterId);
+
   let hasAny = false;
   DAYS.forEach(day => {
     const dayShifts = state.shifts
-      .filter(s => s.day === day && s.isTentative)
-      .sort((a, b) => a.startMin - b.startMin);
+      .filter(s => {
+        if (s.day !== day) return false;
+        const range = getTentativeRange(s);
+        if (!range) return false;
+        if (band.id !== 'all') {
+          return range.start >= band.startMin && range.start < band.endMin;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const ra = getTentativeRange(a);
+        const rb = getTentativeRange(b);
+        return ra.start - rb.start;
+      });
+
     if (dayShifts.length === 0) return;
     hasAny = true;
 
@@ -635,11 +682,12 @@ function renderTentativeList() {
     dayShifts.forEach(shift => {
       const emp = state.employees.find(e => e.id === shift.empId);
       if (!emp) return;
+      const range = getTentativeRange(shift);
       const row = document.createElement('div');
       row.className = 'tentative-row';
       row.innerHTML = `
         <div class="tentative-info">
-          <span class="shortage-time">${minToTime(shift.startMin)}〜${minToTime(shift.endMin)}</span>
+          <span class="shortage-time">${minToTime(range.start)}〜${minToTime(range.end)}</span>
           <span class="tentative-name">${emp.name}が仮で対応中</span>
         </div>
         <span class="tentative-badge">募集中</span>
@@ -652,7 +700,10 @@ function renderTentativeList() {
   });
 
   if (!hasAny) {
-    list.innerHTML = '<div class="empty-msg" style="padding-top:48px">募集中のシフトなし</div>';
+    const msg = band.id !== 'all'
+      ? `<div class="empty-msg" style="padding-top:48px">${band.label} の募集中なし</div>`
+      : '<div class="empty-msg" style="padding-top:48px">募集中のシフトなし</div>';
+    list.innerHTML = msg;
   }
 }
 
@@ -1105,11 +1156,20 @@ function openShiftModal(shiftId = null, prefill = null) {
     startIn.value = minToTimeInput(shift.startMin);
     endIn.value   = minToTimeInput(shift.endMin);
     breakIn.value = shift.breakMin || 0;
-    document.getElementById('shift-is-tentative').checked = shift.isTentative || false;
+    const range = getTentativeRange(shift);
+    if (range) {
+      document.getElementById('tentative-start').value = minToTimeInput(range.start);
+      document.getElementById('tentative-end').value   = minToTimeInput(range.end);
+    } else {
+      document.getElementById('tentative-start').value = '';
+      document.getElementById('tentative-end').value   = '';
+    }
     delBtn.classList.remove('hidden');
     renderDayToggles([shift.day], true);
   } else {
     document.getElementById('modal-shift-title').textContent = '勤務追加';
+    document.getElementById('tentative-start').value = '';
+    document.getElementById('tentative-end').value   = '';
     if (prefill) {
       startIn.value = minToTimeInput(prefill.startMin);
       endIn.value   = minToTimeInput(prefill.endMin);
@@ -1137,7 +1197,8 @@ function updateTentativeGroup() {
     group.classList.remove('hidden');
   } else {
     group.classList.add('hidden');
-    document.getElementById('shift-is-tentative').checked = false;
+    document.getElementById('tentative-start').value = '';
+    document.getElementById('tentative-end').value   = '';
   }
 }
 
@@ -1372,23 +1433,35 @@ function init() {
     const endStr   = document.getElementById('shift-end').value;
     if (!empId || !startStr || !endStr) return;
 
-    const emp         = state.employees.find(e => e.id === empId);
-    const isTentative = (emp && emp.isManager)
-      ? document.getElementById('shift-is-tentative').checked
-      : false;
+    const emp = state.employees.find(e => e.id === empId);
 
     const startMin = timeToMin(startStr);
     let endMin     = timeToMin(endStr);
     if (endMin <= startMin) endMin += 1440;
     const breakMin = parseInt(document.getElementById('shift-break').value) || 0;
 
+    // 仮の時間範囲（店長のみ）
+    let tentativeStart = null, tentativeEnd = null;
+    if (emp && emp.isManager) {
+      const tsStr = document.getElementById('tentative-start').value;
+      const teStr = document.getElementById('tentative-end').value;
+      if (tsStr && teStr) {
+        tentativeStart = timeToMin(tsStr);
+        tentativeEnd   = timeToMin(teStr);
+        if (tentativeEnd <= tentativeStart) tentativeEnd += 1440;
+      }
+    }
+
     if (state.editingShiftId) {
       const s = state.shifts.find(x => x.id === state.editingShiftId);
-      Object.assign(s, { empId, startMin, endMin, breakMin, isTentative });
+      Object.assign(s, { empId, startMin, endMin, breakMin });
+      s.tentativeStart = tentativeStart;
+      s.tentativeEnd   = tentativeEnd;
+      delete s.isTentative; // 旧フォーマットを新フォーマットに移行
     } else {
       const days = getSelectedDays();
       if (days.length === 0) return;
-      days.forEach(day => state.shifts.push({ id: uid(), empId, day, startMin, endMin, breakMin, isTentative }));
+      days.forEach(day => state.shifts.push({ id: uid(), empId, day, startMin, endMin, breakMin, tentativeStart, tentativeEnd }));
     }
     saveShifts();
     closeShiftModal();
@@ -1449,9 +1522,13 @@ function init() {
       emp.category    = state.selectedCategory;
       emp.memo        = memo;
       emp.isManager   = isManager;
-      // 店長フラグが外れたら仮フラグも解除
+      // 店長フラグが外れたら仮の設定も解除
       if (!isManager) {
-        state.shifts.filter(s => s.empId === emp.id).forEach(s => { s.isTentative = false; });
+        state.shifts.filter(s => s.empId === emp.id).forEach(s => {
+          s.isTentative    = false;
+          s.tentativeStart = null;
+          s.tentativeEnd   = null;
+        });
         saveShifts();
       }
     } else {
@@ -1503,6 +1580,22 @@ function init() {
       shortageFilterId = btn.dataset.band;
       renderShortageList();
     });
+  });
+
+  // 募集中リスト 時間帯フィルタ
+  document.querySelectorAll('.tentative-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      tentativeFilterId = btn.dataset.band;
+      renderTentativeList();
+    });
+  });
+
+  // 仮の時間範囲「全範囲」ボタン
+  document.getElementById('btn-tentative-all').addEventListener('click', () => {
+    const sv = document.getElementById('shift-start').value;
+    const ev = document.getElementById('shift-end').value;
+    if (sv) document.getElementById('tentative-start').value = sv;
+    if (ev) document.getElementById('tentative-end').value   = ev;
   });
 
   // 全日コピー（req-copy-src から元曜日を読む）

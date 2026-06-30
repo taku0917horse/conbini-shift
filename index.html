@@ -92,6 +92,14 @@
       </div>
       <!-- 募集中リスト -->
       <div id="req-sub-tentative" class="req-subview hidden">
+        <div id="tentative-filter-bar">
+          <button class="tentative-filter-btn active" data-band="all">すべて</button>
+          <button class="tentative-filter-btn" data-band="dawn">明朝 3–6</button>
+          <button class="tentative-filter-btn" data-band="morn">早朝 6–9</button>
+          <button class="tentative-filter-btn" data-band="day">日勤 9–17</button>
+          <button class="tentative-filter-btn" data-band="eve">夕勤 17–22</button>
+          <button class="tentative-filter-btn" data-band="night">夜勤 22–翌3</button>
+        </div>
         <div id="tentative-list"></div>
       </div>
       <!-- ルール設定（全曜日一覧） -->
@@ -179,13 +187,13 @@
         <input type="number" id="shift-break" min="0" max="240" step="5" value="0" />
       </div>
       <div class="form-group hidden" id="tentative-group">
-        <label class="toggle-row">
-          <span>仮（募集中）</span>
-          <span class="toggle-switch">
-            <input type="checkbox" id="shift-is-tentative" />
-            <span class="toggle-track"><span class="toggle-thumb"></span></span>
-          </span>
-        </label>
+        <label>仮（募集中）の時間範囲 <span class="form-hint">（未入力で通常勤務）</span></label>
+        <div class="tentative-range-row">
+          <input type="time" id="tentative-start" />
+          <span class="tentative-range-sep">〜</span>
+          <input type="time" id="tentative-end" />
+          <button type="button" id="btn-tentative-all" class="btn-secondary btn-sm">全範囲</button>
+        </div>
       </div>
       <div class="modal-actions">
         <button id="btn-shift-save" class="btn-primary">保存</button>

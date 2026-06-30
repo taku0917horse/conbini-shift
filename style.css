@@ -225,13 +225,27 @@ html, body {
   min-height: 20px;
 }
 
-.shift-bar-tentative {
-  border-style: dashed;
-  border-color: rgba(255,255,255,0.95);
-  opacity: 0.75;
+/* 仮の時間範囲オーバーレイ（バー内に斜線パターン） */
+.shift-bar-tentative-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(255,255,255,0) 0px,
+    rgba(255,255,255,0) 4px,
+    rgba(255,255,255,0.38) 4px,
+    rgba(255,255,255,0.38) 7px
+  );
+  border-top: 1.5px dashed rgba(255,255,255,0.75);
+  border-bottom: 1.5px dashed rgba(255,255,255,0.75);
 }
 
 .bar-start-time {
+  position: relative;
+  z-index: 1;
   font-size: 7px;
   font-weight: 500;
   color: rgba(255,255,255,0.88);
@@ -242,6 +256,8 @@ html, body {
 }
 
 .bar-emp-name {
+  position: relative;
+  z-index: 1;
   writing-mode: vertical-rl;
   text-orientation: mixed;
   font-size: 11px;
@@ -254,6 +270,8 @@ html, body {
 }
 
 .bar-break {
+  position: relative;
+  z-index: 1;
   writing-mode: vertical-rl;
   font-size: 9px;
   font-weight: 600;
@@ -686,6 +704,40 @@ html, body {
   vertical-align: middle;
 }
 
+/* ========= 募集中フィルタバー ========= */
+#req-sub-tentative {
+  overflow-y: auto;
+}
+
+#tentative-filter-bar {
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+#tentative-filter-bar::-webkit-scrollbar { display: none; }
+
+.tentative-filter-btn {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tentative-filter-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
 /* ========= 募集中リスト ========= */
 .tentative-row {
   display: flex;
@@ -907,6 +959,23 @@ html, body {
 @media screen {
   .print-day-hdr,
   .print-lanes { min-width: 80px; }
+}
+
+/* 仮の時間範囲入力行 */
+.tentative-range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tentative-range-row input[type="time"] {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+}
+.tentative-range-sep {
+  font-size: 15px;
+  color: var(--muted);
+  flex-shrink: 0;
 }
 
 /* ========= モーダル ========= */
