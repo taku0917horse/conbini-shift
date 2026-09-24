@@ -98,26 +98,13 @@
       </div>
       <!-- 不足リスト（デフォルト表示） -->
       <div id="req-sub-shortage" class="req-subview">
-        <div id="shortage-filter-bar">
-          <button class="shortage-filter-btn active" data-band="all">すべて</button>
-          <button class="shortage-filter-btn" data-band="dawn">明朝 3–6</button>
-          <button class="shortage-filter-btn" data-band="morn">早朝 6–9</button>
-          <button class="shortage-filter-btn" data-band="day">日勤 9–17</button>
-          <button class="shortage-filter-btn" data-band="eve">夕勤 17–22</button>
-          <button class="shortage-filter-btn" data-band="night">夜勤 22–翌3</button>
-        </div>
+        <!-- 絞り込みボタンは app.js で SHIFT_BANDS から作る -->
+        <div id="shortage-filter-bar"></div>
         <div id="shortage-list"></div>
       </div>
       <!-- 募集中リスト -->
       <div id="req-sub-tentative" class="req-subview hidden">
-        <div id="tentative-filter-bar">
-          <button class="tentative-filter-btn active" data-band="all">すべて</button>
-          <button class="tentative-filter-btn" data-band="dawn">明朝 3–6</button>
-          <button class="tentative-filter-btn" data-band="morn">早朝 6–9</button>
-          <button class="tentative-filter-btn" data-band="day">日勤 9–17</button>
-          <button class="tentative-filter-btn" data-band="eve">夕勤 17–22</button>
-          <button class="tentative-filter-btn" data-band="night">夜勤 22–翌3</button>
-        </div>
+        <div id="tentative-filter-bar"></div>
         <div id="tentative-list"></div>
       </div>
       <!-- ルール設定（全曜日一覧） -->
@@ -356,13 +343,8 @@
       </div>
       <div class="form-group">
         <label>区分 <span class="form-hint">（主な勤務帯。制約なし）</span></label>
-        <div id="category-buttons">
-          <button type="button" class="cat-btn" data-cat="明朝">明朝</button>
-          <button type="button" class="cat-btn" data-cat="早朝">早朝</button>
-          <button type="button" class="cat-btn" data-cat="日勤">日勤</button>
-          <button type="button" class="cat-btn" data-cat="夕勤">夕勤</button>
-          <button type="button" class="cat-btn" data-cat="夜勤">夜勤</button>
-        </div>
+        <!-- 区分ボタンは app.js で SHIFT_BANDS から作る -->
+        <div id="category-buttons"></div>
       </div>
       <div class="form-group">
         <label>色</label>

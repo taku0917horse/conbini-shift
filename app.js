@@ -5,15 +5,34 @@ const DAYS = ['月', '火', '水', '木', '金', '土', '日'];
 const TOTAL_HOURS = 27;   // 3:00〜翌6:00 の 27 時間
 const MAX_MIN     = 1620; // 27h * 60min
 
-// 不足リストの時間帯フィルタ定義（startMin/endMin は深夜3:00起点の分）
-const SHORTAGE_BANDS = [
-  { id: 'all',   label: 'すべて',       startMin: 0,    endMin: Infinity },
-  { id: 'dawn',  label: '明朝 3–6',    startMin: 0,    endMin: 180 },
-  { id: 'morn',  label: '早朝 6–9',    startMin: 180,  endMin: 360 },
-  { id: 'day',   label: '日勤 9–17',   startMin: 360,  endMin: 840 },
-  { id: 'eve',   label: '夕勤 17–22',  startMin: 840,  endMin: 1140 },
-  { id: 'night', label: '夜勤 22–翌3', startMin: 1140, endMin: 1620 },
+// ========= 時間帯（区分）の定義: アプリ全体でここだけ =========
+// startMin / endMin は 3:00 起点の分。各日は 3:00〜翌3:00 で、夜勤は翌3:00まで
+// （区分・リストの絞り込み・印刷のボタン・太線の位置・入力ボタンはすべてここから作る）
+const SHIFT_BANDS = [
+  { id: 'dawn',  name: '明朝', startMin: 0,    endMin: 180 },
+  { id: 'morn',  name: '早朝', startMin: 180,  endMin: 360 },
+  { id: 'day',   name: '日勤', startMin: 360,  endMin: 840 },
+  { id: 'eve',   name: '夕勤', startMin: 840,  endMin: 1140 },
+  { id: 'night', name: '夜勤', startMin: 1140, endMin: 1440 },
 ];
+
+// 例: 3, 22, 翌3（3:00起点の分 → 時。ボタンの表記用）
+function bandHourLabel(m) {
+  return (m >= 1440 ? '翌' : '') + ((Math.floor(m / 60) + 3) % 24);
+}
+function bandRangeLabel(b) { return `${bandHourLabel(b.startMin)}–${bandHourLabel(b.endMin)}`; } // 例: 22–翌3
+function bandLabel(b)      { return `${b.name} ${bandRangeLabel(b)}`; }                         // 例: 夜勤 22–翌3
+
+// 区分の境目（3/6/9/17/22/翌3時）。シフト表・印刷・画像の太線に使う
+const BAND_BOUNDARY_MIN = new Set([...SHIFT_BANDS.map(b => b.startMin), 1440]);
+function isBandBoundary(m) { return BAND_BOUNDARY_MIN.has(m); }
+
+// 不足リスト・募集中リストの絞り込み
+const FILTER_BANDS = [
+  { id: 'all', label: 'すべて' },
+  ...SHIFT_BANDS.map(b => ({ ...b, label: bandLabel(b) })),
+];
+
 let shortageFilterId  = 'all';
 let tentativeFilterId = 'all';
 
@@ -114,14 +133,12 @@ function formatWeekRange(weekKey) {
   return `${year}${formatMD(mon)}(月)〜${formatMD(sun)}(日)`;
 }
 
-const PRESETS = [
-  ['3-6',   '03:00', '06:00'],
-  ['6-9',   '06:00', '09:00'],
-  ['9-13',  '09:00', '13:00'],
-  ['13-17', '13:00', '17:00'],
-  ['17-22', '17:00', '22:00'],
-  ['22-3',  '22:00', '03:00'],
-];
+// 勤務・必要人数の入力ボタン: 区分の時間帯 + 日勤の前半・後半
+const TIME_PRESETS = [
+  ...SHIFT_BANDS.map(b => ({ label: bandRangeLabel(b), startMin: b.startMin, endMin: b.endMin })),
+  { label: '9–13',  startMin: 360, endMin: 600 },
+  { label: '13–17', startMin: 600, endMin: 840 },
+].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
 
 const COLORS = [
   '#2563eb', '#16a34a', '#dc2626', '#9333ea',
@@ -129,7 +146,7 @@ const COLORS = [
 ];
 
 // シフト区分（5種）。表示・分類のみ。勤務入力には影響しない。
-const CATEGORIES = ['明朝', '早朝', '日勤', '夕勤', '夜勤'];
+const CATEGORIES = SHIFT_BANDS.map(b => b.name);
 
 // ========= ストレージ =========
 const store = {
@@ -610,15 +627,12 @@ function renderShiftChart() {
 
   renderWeekBar();
 
-  // 区分開始時刻（3:00起点のhインデックス）→ ラベル太字
-  const CHART_BOLD_H = new Set([0, 3, 6, 14, 19]); // 3/6/9/17/22時
-
   // 時刻ラベル & 水平線
   for (let h = 0; h <= TOTAL_HOURS; h++) {
     const y     = h * HOUR_H;
     const realH = (h + 3) % 24;
     const lbl   = document.createElement('div');
-    lbl.className   = 'time-label' + (CHART_BOLD_H.has(h) ? ' time-label-bold' : '');
+    lbl.className   = 'time-label' + (isBandBoundary(h * 60) ? ' time-label-bold' : '');
     lbl.style.top   = y + 'px';
     lbl.textContent = (h >= 24 ? '翌' : '') + `${String(realH).padStart(2, '0')}:00`;
     labels.appendChild(lbl);
@@ -831,6 +845,20 @@ function renderReqRules() {
   });
 }
 
+// ========= 時間帯での絞り込み（不足リスト・募集中リスト共通） =========
+// 各日を 3:00 で区切り（翌3:00以降は翌日の分として扱う）、帯に重なる部分だけを返す → [{ day, startMin, endMin }]
+// 週表示の日曜の翌日（翌週の月曜）の分は、この週の一覧には含めない
+function clipToBand(day, startMin, endMin, band) {
+  const parts = [{ day, startMin, endMin: Math.min(endMin, 1440) }];
+  const nextIdx = DAYS.indexOf(day) + 1;
+  if (endMin > 1440 && (nextIdx < DAYS.length || isTemplateMode())) {
+    parts.push({ day: DAYS[nextIdx % DAYS.length], startMin: Math.max(startMin, 1440) - 1440, endMin: endMin - 1440 });
+  }
+  return parts
+    .map(p => ({ ...p, startMin: Math.max(p.startMin, band.startMin), endMin: Math.min(p.endMin, band.endMin) }))
+    .filter(p => p.endMin > p.startMin);
+}
+
 // ========= 不足リスト描画 =========
 function renderShortageList() {
   const list = document.getElementById('shortage-list');
@@ -847,18 +875,24 @@ function renderShortageList() {
     return;
   }
 
-  const band = SHORTAGE_BANDS.find(b => b.id === shortageFilterId);
+  const band = FILTER_BANDS.find(b => b.id === shortageFilterId);
+
+  // 日ごとの不足区間。「すべて」は夜通しの不足を前日の行にまとめた区間、
+  // 時間帯で絞り込むときは各日 3:00〜翌3:00 の区間のうち帯に重なる部分
+  const byDay = new Map(DAYS.map(d => [d, []]));
+  DAYS.forEach(day => {
+    if (band.id === 'all') {
+      byDay.get(day).push(...computeShortages(day));
+    } else {
+      getDayShortageSegs(day, state.currentWeek).forEach(seg => {
+        clipToBand(day, seg.startMin, seg.endMin, band).forEach(p => byDay.get(p.day).push({ ...seg, ...p }));
+      });
+    }
+  });
 
   let hasAny = false;
   DAYS.forEach(day => {
-    let shortages = computeShortages(day);
-
-    // 時間帯フィルタ（不足の開始時刻がバンド内に収まるものだけ表示）
-    if (band.id !== 'all') {
-      shortages = shortages.filter(
-        s => s.startMin >= band.startMin && s.startMin < band.endMin
-      );
-    }
+    const shortages = byDay.get(day).sort((a, b) => a.startMin - b.startMin);
 
     if (shortages.length === 0) return;
     hasAny = true;
@@ -933,31 +967,28 @@ function renderTentativeList() {
     return;
   }
 
-  const band = SHORTAGE_BANDS.find(b => b.id === tentativeFilterId);
+  const band = FILTER_BANDS.find(b => b.id === tentativeFilterId);
+
+  // 仮の時間範囲 / 当欠の勤務。「すべて」はそのまま、時間帯で絞り込むときは帯に重なる部分だけ
+  const byDay = new Map(DAYS.map(d => [d, []]));
+  shifts.forEach(s => {
+    const range = s.absent
+      ? { start: s.startMin, end: s.endMin }
+      : getTentativeRange(s);
+    if (!range) return;
+    const kind = s.absent ? 'absent' : 'tentative';
+    if (band.id === 'all') {
+      byDay.get(s.day).push({ shift: s, kind, dispStart: range.start, dispEnd: range.end });
+    } else {
+      clipToBand(s.day, range.start, range.end, band).forEach(p => {
+        byDay.get(p.day).push({ shift: s, kind, dispStart: p.startMin, dispEnd: p.endMin });
+      });
+    }
+  });
 
   let hasAny = false;
   DAYS.forEach(day => {
-    // 仮の時間範囲 / 当欠の勤務について、バンドとの重複部分を計算する
-    const entries = [];
-    shifts.forEach(s => {
-      if (s.day !== day) return;
-      const range = s.absent
-        ? { start: s.startMin, end: s.endMin }
-        : getTentativeRange(s);
-      if (!range) return;
-      const kind = s.absent ? 'absent' : 'tentative';
-      if (band.id === 'all') {
-        entries.push({ shift: s, kind, dispStart: range.start, dispEnd: range.end });
-      } else {
-        // バンド境界でクリップして重複部分だけを表示
-        const clippedStart = Math.max(range.start, band.startMin);
-        const clippedEnd   = Math.min(range.end, band.endMin);
-        if (clippedEnd > clippedStart) {
-          entries.push({ shift: s, kind, dispStart: clippedStart, dispEnd: clippedEnd });
-        }
-      }
-    });
-    entries.sort((a, b) => a.dispStart - b.dispStart);
+    const entries = byDay.get(day).sort((a, b) => a.dispStart - b.dispStart);
 
     if (entries.length === 0) return;
     hasAny = true;
@@ -1021,17 +1052,11 @@ function getPrintDayLabel(day) {
   return `${day} ${formatMD(getDateOfDay(state.currentWeek, day))}`;
 }
 
-// 基本帯の境界に対応するh値（3:00起点）: 3:00/6:00/9:00/13:00/17:00/22:00/翌3:00
-const BAND_H = new Set([0, 3, 6, 10, 14, 19, 24]);
 
-// 時間帯のプリセット（開始・終了の入力欄に入れるショートカット）
+// 印刷の時間帯ボタン（開始・終了の入力欄に入れるショートカット）: 全日 + 区分の時間帯
 const PRINT_PRESETS = [
-  { name: '全日', label: '全日',        start: '03:00', end: '03:00' },
-  { name: '明朝', label: '明朝 3–6',    start: '03:00', end: '06:00' },
-  { name: '早朝', label: '早朝 6–9',    start: '06:00', end: '09:00' },
-  { name: '日勤', label: '日勤 9–17',   start: '09:00', end: '17:00' },
-  { name: '夕勤', label: '夕勤 17–22',  start: '17:00', end: '22:00' },
-  { name: '夜勤', label: '夜勤 22–翌3', start: '22:00', end: '03:00' },
+  { name: '全日', label: '全日', startMin: 0, endMin: 1440 },
+  ...SHIFT_BANDS.map(b => ({ name: b.name, label: bandLabel(b), startMin: b.startMin, endMin: b.endMin })),
 ];
 
 // 用紙のレイアウト（mm）
@@ -1088,13 +1113,8 @@ function savePrintSettings() {
   store.save('printOrient',   printSettings.orient);
 }
 
-function presetRange(p) { return parsePrintRange(p.start, p.end); }
-
 function findActivePreset() {
-  return PRINT_PRESETS.find(p => {
-    const r = presetRange(p);
-    return r.startMin === printSettings.startMin && r.endMin === printSettings.endMin;
-  }) || null;
+  return PRINT_PRESETS.find(p => p.startMin === printSettings.startMin && p.endMin === printSettings.endMin) || null;
 }
 
 function formatDuration(min) {
@@ -1193,13 +1213,12 @@ function buildWeekBlock(weekKey) {
     ...ticks.filter(t => t.major && t.m - startMin >= gapAfterStart && endMin - t.m >= gapBeforeEnd).map(t => t.m),
     endMin,
   ];
-  const isBandLine = m => m % 60 === 0 && BAND_H.has(m / 60);
 
   grid.appendChild(makeEl('div', 'bg-corner'));
   const axis = makeEl('div', 'bg-axis');
   labels.forEach(m => {
     const edge = m === startMin ? ' edge-start' : m === endMin ? ' edge-end' : '';
-    const lbl = makeEl('div', 'bg-axis-lbl' + (isBandLine(m) ? ' bold' : '') + edge, minToTimeShort(m));
+    const lbl = makeEl('div', 'bg-axis-lbl' + (isBandBoundary(m) ? ' bold' : '') + edge, minToTimeShort(m));
     lbl.style[vertical ? 'top' : 'left'] = `${pct(m)}%`;
     axis.appendChild(lbl);
   });
@@ -1222,7 +1241,7 @@ function buildWeekBlock(weekKey) {
 
     ticks.forEach(({ m, major }) => {
       if (m <= startMin || m >= endMin) return;
-      const line = makeEl('div', 'bg-line' + (major ? '' : ' minor') + (isBandLine(m) ? ' band' : ''));
+      const line = makeEl('div', 'bg-line' + (major ? '' : ' minor') + (isBandBoundary(m) ? ' band' : ''));
       line.style[vertical ? 'top' : 'left'] = `${pct(m)}%`;
       lane.appendChild(line);
     });
@@ -1671,8 +1690,8 @@ function initPrintControls() {
     btn.type = 'button';
     btn.dataset.preset = p.name;
     btn.addEventListener('click', () => {
-      document.getElementById('print-start').value = p.start;
-      document.getElementById('print-end').value   = p.end;
+      document.getElementById('print-start').value = minToTimeInput(p.startMin);
+      document.getElementById('print-end').value   = minToTimeInput(p.endMin);
       applyPrintRangeInputs();
     });
     presetWrap.appendChild(btn);
@@ -1748,7 +1767,6 @@ function canvasRoundRect(ctx, x, y, w, h, r) {
 }
 
 function generateChartCanvas() {
-  const BAND_H_SET = new Set([0, 3, 6, 10, 14, 19, 24]);
   const PX_PER_HOUR = 50;
   const TIME_W  = 60;
   const DAY_W   = 160; // 時刻（例:「12:30」）が切れないよう幅を確保
@@ -1794,7 +1812,7 @@ function generateChartCanvas() {
   for (let h = 0; h <= TOTAL_HOURS; h++) {
     const y = HDR_H + h * PX_PER_HOUR;
     const realH = (h + 3) % 24;
-    const isBand = BAND_H_SET.has(h);
+    const isBand = isBandBoundary(h * 60);
     const tlabel = (h >= 24 ? '翌' : '') + String(realH).padStart(2, '0') + ':00';
 
     ctx.fillStyle = isBand ? '#111' : '#6b7280';
@@ -2279,8 +2297,30 @@ function switchView(name) {
   if (name === 'print')        renderPrintPreview();
 }
 
+// 時間帯の定義から、リストの絞り込みボタンと従業員の区分ボタンを作る
+function renderBandButtons() {
+  [['shortage-filter-bar', 'shortage-filter-btn'], ['tentative-filter-bar', 'tentative-filter-btn']].forEach(([barId, cls]) => {
+    const bar = document.getElementById(barId);
+    FILTER_BANDS.forEach(b => {
+      const btn = makeEl('button', cls + (b.id === 'all' ? ' active' : ''), b.label);
+      btn.type = 'button';
+      btn.dataset.band = b.id;
+      bar.appendChild(btn);
+    });
+  });
+  const catWrap = document.getElementById('category-buttons');
+  CATEGORIES.forEach(cat => {
+    const btn = makeEl('button', 'cat-btn', cat);
+    btn.type = 'button';
+    btn.dataset.cat = cat;
+    catWrap.appendChild(btn);
+  });
+}
+
 // ========= 初期化 =========
 function init() {
+  renderBandButtons();
+
   // ナビ
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
@@ -2344,14 +2384,14 @@ function init() {
 
   // シフトプリセット
   const presetWrap = document.getElementById('preset-buttons');
-  PRESETS.forEach(([label, start, end]) => {
+  TIME_PRESETS.forEach(({ label, startMin, endMin }) => {
     const btn = document.createElement('button');
     btn.className   = 'preset-btn';
     btn.textContent = label;
     btn.type        = 'button';
     btn.addEventListener('click', () => {
-      document.getElementById('shift-start').value = start;
-      document.getElementById('shift-end').value   = end;
+      document.getElementById('shift-start').value = minToTimeInput(startMin);
+      document.getElementById('shift-end').value   = minToTimeInput(endMin);
     });
     presetWrap.appendChild(btn);
   });
@@ -2585,14 +2625,14 @@ function init() {
 
   // ルールプリセット
   const reqPresetWrap = document.getElementById('req-preset-buttons');
-  PRESETS.forEach(([label, start, end]) => {
+  TIME_PRESETS.forEach(({ label, startMin, endMin }) => {
     const btn = document.createElement('button');
     btn.className   = 'preset-btn';
     btn.textContent = label;
     btn.type        = 'button';
     btn.addEventListener('click', () => {
-      document.getElementById('req-start').value = start;
-      document.getElementById('req-end').value   = end;
+      document.getElementById('req-start').value = minToTimeInput(startMin);
+      document.getElementById('req-end').value   = minToTimeInput(endMin);
     });
     reqPresetWrap.appendChild(btn);
   });
