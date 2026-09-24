@@ -331,9 +331,10 @@ function isTemplateMode() { return state.mode === 'template'; }
 function getWeek(weekKey) { return state.weeks[weekKey] || null; }
 
 // 表示・編集対象のシフト配列。未作成の週は null
-function getTargetShifts() {
+// weekKey を渡すとその週（印刷で複数週を扱うため）。テンプレート表示中は常にテンプレート
+function getTargetShifts(weekKey = state.currentWeek) {
   if (isTemplateMode()) return state.templateShifts;
-  const week = getWeek(state.currentWeek);
+  const week = getWeek(weekKey);
   return week ? week.shifts : null;
 }
 
@@ -373,13 +374,13 @@ function isCounted(shift) { return !shift.absent; }
 
 // 指定曜日の実効シフト（自日分 + 前日からの日またぎ分を当日座標に変換）
 // 週表示の月曜は前週の日曜から日またぎ分を持ってくる（fromPrevWeek で識別）
-function getEffectiveShiftsForDay(day) {
-  const shifts  = getTargetShifts() || [];
+function getEffectiveShiftsForDay(day, weekKey = state.currentWeek) {
+  const shifts  = getTargetShifts(weekKey) || [];
   const prevDay = getPrevDay(day);
   let prevShifts = shifts;
   let fromPrevWeek = false;
   if (!isTemplateMode() && day === DAYS[0]) {
-    const prevWeek = getWeek(addDaysToKey(state.currentWeek, -7));
+    const prevWeek = getWeek(addDaysToKey(weekKey, -7));
     prevShifts   = prevWeek ? prevWeek.shifts : [];
     fromPrevWeek = true;
   }
@@ -391,6 +392,7 @@ function getEffectiveShiftsForDay(day) {
       day,
       startMin: Math.max(0, s.startMin - 1440),
       endMin:   s.endMin - 1440,
+      fromPrevDay: true,
       fromPrevWeek,
     }));
   return [...own, ...overflow];
@@ -458,10 +460,10 @@ function computeShortages(day) {
   return merged;
 }
 
-// 印刷・画像用：不足区間を { startMin, endMin, isEmpty } の配列で返す
-function getShortageOverlays(day) {
-  if (!getTargetShifts()) return [];  // 未作成の週
-  const dayShifts = getEffectiveShiftsForDay(day).filter(isCounted);
+// 印刷・画像用：不足区間を { startMin, endMin, isEmpty, short } の配列で返す（short = 不足人数）
+function getShortageOverlays(day, weekKey = state.currentWeek) {
+  if (!getTargetShifts(weekKey)) return [];  // 未作成の週
+  const dayShifts = getEffectiveShiftsForDay(day, weekKey).filter(isCounted);
   const dayReqs   = getEffectiveReqsForDay(day);
   if (dayReqs.length === 0) return [];
   const bp = new Set([0, MAX_MIN]);
@@ -474,12 +476,12 @@ function getShortageOverlays(day) {
     const req = getRequiredCount(day, start);
     if (req === 0) continue;
     const actual = dayShifts.filter(s => s.startMin <= start && s.endMin > start).length;
-    if (actual < req) segs.push({ startMin: start, endMin: end, isEmpty: actual === 0 });
+    if (actual < req) segs.push({ startMin: start, endMin: end, isEmpty: actual === 0, short: req - actual });
   }
   const merged = [];
   for (const seg of segs) {
     const last = merged[merged.length - 1];
-    if (last && last.endMin === seg.startMin && last.isEmpty === seg.isEmpty) {
+    if (last && last.endMin === seg.startMin && last.isEmpty === seg.isEmpty && last.short === seg.short) {
       last.endMin = seg.endMin;
     } else {
       merged.push({ ...seg });
@@ -584,18 +586,8 @@ function renderShiftChart() {
   // シフトバー（レーン割り当て: 開始時刻順・空きレーン再利用）
   // 前日からの日またぎ分も含む実効シフトを使用
   const dayShifts = getEffectiveShiftsForDay(day);
-  const laneEnds  = [];
-  const sorted    = [...dayShifts].sort((a, b) => a.startMin - b.startMin);
-
-  const layouts = sorted.map(shift => {
-    let lane = laneEnds.findIndex(e => e <= shift.startMin);
-    if (lane === -1) lane = laneEnds.length;
-    laneEnds[lane] = shift.endMin;
-    return { shift, lane };
-  });
-
-  const numLanes = Math.max(1, laneEnds.length);
-  const laneW    = 1 / numLanes;
+  const { layouts, numLanes } = assignLanes(dayShifts);
+  const laneW = 1 / numLanes;
 
   layouts.forEach(({ shift, lane }) => {
     const emp = state.employees.find(e => e.id === shift.empId);
@@ -979,8 +971,8 @@ function renderReqTargetLabel() {
   document.getElementById('req-target-label').textContent = `対象: ${getTargetLabel()}`;
 }
 
-// ========= 印刷バーチャート生成 =========
-const ABSENT_COLOR = '#9ca3af'; // 当欠バーの色（印刷・画像）
+// ========= 印刷（時間帯別シフト表） =========
+const ABSENT_COLOR = '#9ca3af'; // 当欠バーの色（画像保存。印刷は白黒デザイン）
 
 // 印刷・画像の曜日見出し（週表示は日付付き。例: 月 9/21）
 function getPrintDayLabel(day) {
@@ -991,117 +983,492 @@ function getPrintDayLabel(day) {
 // 基本帯の境界に対応するh値（3:00起点）: 3:00/6:00/9:00/13:00/17:00/22:00/翌3:00
 const BAND_H = new Set([0, 3, 6, 10, 14, 19, 24]);
 
-function buildPrintChart() {
-  const wrapper = document.createElement('div');
-  wrapper.className = 'print-chart';
+// 時間帯のプリセット（開始・終了の入力欄に入れるショートカット）
+const PRINT_PRESETS = [
+  { name: '全日', label: '全日',        start: '03:00', end: '03:00' },
+  { name: '明朝', label: '明朝 3–6',    start: '03:00', end: '06:00' },
+  { name: '早朝', label: '早朝 6–9',    start: '06:00', end: '09:00' },
+  { name: '日勤', label: '日勤 9–17',   start: '09:00', end: '17:00' },
+  { name: '夕勤', label: '夕勤 17–22',  start: '17:00', end: '22:00' },
+  { name: '夜勤', label: '夜勤 22–翌3', start: '22:00', end: '03:00' },
+];
 
-  // ── ヘッダー行（曜日名） ──
-  const headerRow = document.createElement('div');
-  headerRow.className = 'print-chart-header';
+// 用紙のレイアウト（mm）
+const PAGE_MM       = { portrait: { w: 193, h: 280 }, landscape: { w: 280, h: 193 } }; // A4 − 余白8mm（少し小さめ）
+const HOUR_MM       = 10;   // 1時間あたりの長さ（縦・横共通。24時間で240mm）
+const LANE_MM       = 6.5;  // 時間軸 横: 1人分の行の高さ
+const STRIP_MM      = 5;    // 人数不足の帯（バーの手前に空ける幅。「不足」の文字を入れる）
+const BAR_GAP_MM    = 0.6;  // バー同士の隙間（白地に黒枠のバーが隣り合っても区別できるように）
+const PAGE_TITLE_MM = 9;
+const PAGE_LEGEND_MM = 6;
+const BLOCK_GAP_MM  = 4;
+const WEEK_LABEL_MM = 6;
+const V_AXIS_MM     = 14;   // 時間軸 縦: 時刻列の幅
+const V_HEADER_MM   = 9;    // 時間軸 縦: 日付見出しの高さ
+const H_AXIS_MM     = 6;    // 時間軸 横: 時刻見出しの高さ
+const H_DAYCOL_MM   = 17;   // 時間軸 横: 日付列の幅
 
-  const corner = document.createElement('div');
-  corner.className = 'print-corner';
-  headerRow.appendChild(corner);
+// 開始・終了の入力値 → 3:00起点の分（15分単位に丸める）。終了が開始以前なら翌日、上限は翌6:00
+function parsePrintRange(startStr, endStr) {
+  if (!startStr || !endStr) return null;
+  const round15 = m => (Math.round(m / 15) * 15) % 1440;
+  const startMin = round15(timeToMin(startStr));
+  let endMin = round15(timeToMin(endStr));
+  if (endMin <= startMin) endMin += 1440;
+  const clamped = endMin > MAX_MIN;
+  endMin = Math.min(endMin, MAX_MIN);
+  if (endMin - startMin < 15) return null;
+  return { startMin, endMin, clamped };
+}
 
-  DAYS.forEach(day => {
-    const hdr = document.createElement('div');
-    hdr.className = 'print-day-hdr';
-    hdr.textContent = getPrintDayLabel(day);
-    headerRow.appendChild(hdr);
-  });
-  wrapper.appendChild(headerRow);
+// 印刷設定（端末ごとに記憶）
+const printSettings = (() => {
+  const saved = {
+    startMin: store.load('printStartMin', 0),
+    endMin:   store.load('printEndMin', 1440),
+    weeks:    store.load('printWeeks', 1),
+    orient:   store.load('printOrient', 'portrait'), // 'portrait' = 時間軸 縦 / A4縦, 'landscape' = 時間軸 横 / A4横
+  };
+  const validRange = Number.isInteger(saved.startMin) && Number.isInteger(saved.endMin)
+    && saved.startMin >= 0 && saved.endMin <= MAX_MIN && saved.endMin - saved.startMin >= 15;
+  if (!validRange) { saved.startMin = 0; saved.endMin = 1440; }
+  if (![1, 2, 3, 4].includes(saved.weeks)) saved.weeks = 1;
+  if (!['portrait', 'landscape'].includes(saved.orient)) saved.orient = 'portrait';
+  return saved;
+})();
 
-  // ── ボディ行（時刻軸 + 7日分レーン） ──
-  const bodyRow = document.createElement('div');
-  bodyRow.className = 'print-chart-body';
+function savePrintSettings() {
+  store.save('printStartMin', printSettings.startMin);
+  store.save('printEndMin',   printSettings.endMin);
+  store.save('printWeeks',    printSettings.weeks);
+  store.save('printOrient',   printSettings.orient);
+}
 
-  // 時刻軸
-  const timeAxis = document.createElement('div');
-  timeAxis.className = 'print-time-axis';
-  for (let h = 0; h <= TOTAL_HOURS; h++) {
-    const realH = (h + 3) % 24;
-    const lbl = document.createElement('div');
-    lbl.className = 'print-time-lbl' + (BAND_H.has(h) ? ' print-time-bold' : '');
-    lbl.style.top = `calc(${h} * var(--print-hour-h))`;
-    lbl.textContent = (h >= 24 ? '翌' : '') + String(realH).padStart(2, '0') + ':00';
-    timeAxis.appendChild(lbl);
-  }
-  bodyRow.appendChild(timeAxis);
+function presetRange(p) { return parsePrintRange(p.start, p.end); }
 
-  // 7曜日分のレーン列
-  DAYS.forEach(day => {
-    const dayShifts = getEffectiveShiftsForDay(day);
-    const sorted = [...dayShifts].sort((a, b) => a.startMin - b.startMin);
+function findActivePreset() {
+  return PRINT_PRESETS.find(p => {
+    const r = presetRange(p);
+    return r.startMin === printSettings.startMin && r.endMin === printSettings.endMin;
+  }) || null;
+}
 
-    // レーン割り当て（画面と同じアルゴリズム）
-    const laneEnds = [];
-    const layouts = sorted.map(shift => {
+function formatDuration(min) {
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h}時間${m}分` : `${h}時間`;
+}
+
+// 例: 夕勤 17:00〜22:00 / 17:15〜21:45
+function getPrintRangeTitle() {
+  const preset = findActivePreset();
+  const range  = `${minToTimeShort(printSettings.startMin)}〜${minToTimeShort(printSettings.endMin)}`;
+  return preset ? `${preset.name} ${range}` : range;
+}
+
+// 印刷する週（テンプレート表示中はテンプレート1つ）
+function getPrintWeekKeys() {
+  if (isTemplateMode()) return [null];
+  return Array.from({ length: printSettings.weeks }, (_, i) => addDaysToKey(state.currentWeek, i * 7));
+}
+
+// 重なる勤務を列（レーン）に振り分ける（開始時刻順・空いたレーンを再利用）
+function assignLanes(shifts) {
+  const laneEnds = [];
+  const layouts = [...shifts]
+    .sort((a, b) => a.startMin - b.startMin)
+    .map(shift => {
       let lane = laneEnds.findIndex(e => e <= shift.startMin);
       if (lane === -1) lane = laneEnds.length;
       laneEnds[lane] = shift.endMin;
       return { shift, lane };
     });
-    const numLanes = Math.max(1, laneEnds.length);
+  return { layouts, numLanes: Math.max(1, laneEnds.length) };
+}
 
-    const lanesDiv = document.createElement('div');
-    lanesDiv.className = 'print-lanes';
+function makeEl(tag, className, text) {
+  const e = document.createElement(tag);
+  if (className) e.className = className;
+  if (text != null) e.textContent = text;
+  return e;
+}
 
-    // 水平線（h=1〜TOTAL_HOURS-1。h=0は上枠線、h=27は下枠線で代替）
-    for (let h = 1; h < TOTAL_HOURS; h++) {
-      const line = document.createElement('div');
-      line.className = 'print-hline' + (BAND_H.has(h) ? ' print-band-line' : '');
-      line.style.top = `calc(${h} * var(--print-hour-h))`;
-      lanesDiv.appendChild(line);
-    }
+// 勤務の表示用時刻（前日からの日またぎは「前日〜」）
+function getShiftTimeLabel(shift) {
+  const start = shift.fromPrevDay ? '前日' : minToTimeShort(shift.startMin);
+  return `${start}〜${minToTimeShort(shift.endMin)}`;
+}
 
-    // シフトバー
-    layouts.forEach(({ shift, lane }) => {
-      const emp = state.employees.find(e => e.id === shift.empId);
-      if (!emp) return;
+// 1週分のまとまりを作る → { el, heightMm }
+function buildWeekBlock(weekKey) {
+  const { startMin, endMin, orient } = printSettings;
+  const vertical = orient === 'portrait'; // 時間軸が縦
+  const span   = endMin - startMin;
+  const spanMm = span / 60 * HOUR_MM;
+  const pct    = m => ((Math.min(Math.max(m, startMin), endMin) - startMin) / span * 100);
+  const tmpl   = isTemplateMode();
 
-      const laneW = 1 / numLanes;
-      const bar = document.createElement('div');
-      bar.className = 'print-bar';
-      bar.style.top        = `calc(${(shift.startMin / 60).toFixed(4)} * var(--print-hour-h))`;
-      bar.style.height     = `calc(${((shift.endMin - shift.startMin) / 60).toFixed(4)} * var(--print-hour-h))`;
-      bar.style.left       = `${(lane * laneW * 100).toFixed(2)}%`;
-      bar.style.width      = `${(laneW * 100 - 0.5).toFixed(2)}%`;
-      bar.style.background = shift.absent ? ABSENT_COLOR : emp.color;
+  const block = makeEl('div', 'week-block');
+  block.appendChild(makeEl('div', 'week-block-label', tmpl ? 'テンプレート' : formatWeekRange(weekKey)));
 
-      const label = (shift.absent ? '欠' : '') + (emp.displayName || emp.name.slice(0, 2));
+  if (!getTargetShifts(weekKey)) {
+    block.appendChild(makeEl('div', 'week-block-empty', 'この週はまだ作成されていません'));
+    return { el: block, heightMm: WEEK_LABEL_MM + 10 };
+  }
 
-      const startEl = document.createElement('div');
-      startEl.className   = 'print-bar-start';
-      startEl.textContent = minToTimeShort(shift.startMin);
-      bar.appendChild(startEl);
-
-      const nameEl = document.createElement('div');
-      nameEl.className   = 'print-bar-name';
-      nameEl.textContent = label;
-      bar.appendChild(nameEl);
-
-      const endEl = document.createElement('div');
-      endEl.className   = 'print-bar-end';
-      endEl.textContent = minToTimeShort(shift.endMin);
-      bar.appendChild(endEl);
-
-      lanesDiv.appendChild(bar);
-    });
-
-    // 不足オーバーレイ（バーの背後に配置）
-    getShortageOverlays(day).forEach(({ startMin, endMin, isEmpty }) => {
-      const ov = document.createElement('div');
-      ov.className = 'print-shortage-ov' + (isEmpty ? ' print-shortage-ov-empty' : '');
-      ov.style.top    = `calc(${(startMin / 60).toFixed(4)} * var(--print-hour-h))`;
-      ov.style.height = `calc(${((endMin - startMin) / 60).toFixed(4)} * var(--print-hour-h))`;
-      lanesDiv.appendChild(ov);
-    });
-
-    bodyRow.appendChild(lanesDiv);
+  // 日ごとの勤務（時間帯にかかるものを切り出してレーン割り当て）
+  const days = DAYS.map(day => {
+    const inRange = getEffectiveShiftsForDay(day, weekKey)
+      .filter(s => s.startMin < endMin && s.endMin > startMin)
+      .map(s => ({ shift: s, startMin: Math.max(s.startMin, startMin), endMin: Math.min(s.endMin, endMin) }));
+    return { day, ...assignLanes(inRange) };
   });
 
-  wrapper.appendChild(bodyRow);
-  return wrapper;
+  const grid = makeEl('div', `band-grid ${vertical ? 'band-grid-v' : 'band-grid-h'}`);
+  let heightMm;
+  if (vertical) {
+    grid.style.gridTemplateColumns = `${V_AXIS_MM}mm repeat(7, 1fr)`;
+    grid.style.gridTemplateRows    = `${V_HEADER_MM}mm ${spanMm}mm`;
+    heightMm = WEEK_LABEL_MM + V_HEADER_MM + spanMm;
+  } else {
+    const rowMm = days.map(d => STRIP_MM + d.numLanes * LANE_MM);
+    grid.style.gridTemplateColumns = `${H_DAYCOL_MM}mm ${spanMm}mm`;
+    grid.style.gridTemplateRows    = [H_AXIS_MM, ...rowMm].map(v => `${v}mm`).join(' ');
+    heightMm = WEEK_LABEL_MM + H_AXIS_MM + rowMm.reduce((a, b) => a + b, 0);
+  }
+  block.appendChild(grid);
+
+  // 時刻の目盛り（1時間ごと + 30分の補助線）。開始・終了が半端な時刻ならその時刻もラベルにする
+  const ticks = [];
+  for (let m = Math.ceil(startMin / 30) * 30; m <= endMin; m += 30) ticks.push({ m, major: m % 60 === 0 });
+  // ラベルが重ならないよう、開始・終了のラベルに近い時刻は省く
+  // （横は目盛りの右側に左寄せで書くため、開始の後と終了の手前に広めに空ける）
+  const gapAfterStart = vertical ? 25 : 45;
+  const gapBeforeEnd  = vertical ? 25 : 75;
+  const labels = [
+    startMin,
+    ...ticks.filter(t => t.major && t.m - startMin >= gapAfterStart && endMin - t.m >= gapBeforeEnd).map(t => t.m),
+    endMin,
+  ];
+  const isBandLine = m => m % 60 === 0 && BAND_H.has(m / 60);
+
+  grid.appendChild(makeEl('div', 'bg-corner'));
+  const axis = makeEl('div', 'bg-axis');
+  labels.forEach(m => {
+    const edge = m === startMin ? ' edge-start' : m === endMin ? ' edge-end' : '';
+    const lbl = makeEl('div', 'bg-axis-lbl' + (isBandLine(m) ? ' bold' : '') + edge, minToTimeShort(m));
+    lbl.style[vertical ? 'top' : 'left'] = `${pct(m)}%`;
+    axis.appendChild(lbl);
+  });
+  grid.appendChild(axis);
+
+  days.forEach(({ day, layouts, numLanes }) => {
+    const hdr = makeEl('div', 'bg-day-hdr');
+    if (tmpl) {
+      hdr.textContent = day;
+    } else {
+      hdr.appendChild(makeEl('span', 'bg-day-date', formatMD(getDateOfDay(weekKey, day))));
+      hdr.appendChild(makeEl('span', 'bg-day-wd', `(${day})`));
+    }
+    if (day === '土') hdr.classList.add('sat');
+    if (day === '日') hdr.classList.add('sun');
+    grid.appendChild(hdr);
+
+    const lane = makeEl('div', 'bg-lane');
+    grid.appendChild(lane);
+
+    ticks.forEach(({ m, major }) => {
+      if (m <= startMin || m >= endMin) return;
+      const line = makeEl('div', 'bg-line' + (major ? '' : ' minor') + (isBandLine(m) ? ' band' : ''));
+      line.style[vertical ? 'top' : 'left'] = `${pct(m)}%`;
+      lane.appendChild(line);
+    });
+
+    // 人数不足（バーの背後）
+    // 白黒でも区別できるよう、空いている場所は網点、先頭の帯は太い点線枠 +「不足◯」「0人」の文字
+    getShortageOverlays(day, weekKey).forEach(ov => {
+      if (ov.endMin <= startMin || ov.startMin >= endMin) return;
+      const cls = ov.isEmpty ? ' empty' : '';
+      const bg   = makeEl('div', 'bg-shortage' + cls);
+      const mark = makeEl('div', 'bg-shortage-mark' + cls);
+      mark.appendChild(makeEl('span', 'bg-shortage-lbl', ov.isEmpty ? '0人' : `不足${ov.short}`));
+      [bg, mark].forEach(e => {
+        e.style[vertical ? 'top' : 'left']     = `${pct(ov.startMin)}%`;
+        e.style[vertical ? 'height' : 'width'] = `${pct(ov.endMin) - pct(ov.startMin)}%`;
+        lane.appendChild(e);
+      });
+    });
+
+    // 勤務バー（先頭の帯を空けて並べ、人数不足がいつでも見えるようにする）
+    const bars = makeEl('div', 'bg-bars');
+    lane.appendChild(bars);
+    const laneSize = 100 / numLanes;
+    layouts.forEach(({ shift: clip, lane: li }) => {
+      const s   = clip.shift;
+      const emp = state.employees.find(e => e.id === s.empId);
+      if (!emp) return;
+
+      // 白地に黒枠（白黒印刷前提。従業員ごとの色は使わない）
+      const bar = makeEl('div', 'bg-bar' + (s.absent ? ' absent' : ''));
+      const gap = BAR_GAP_MM / 2;
+      bar.style[vertical ? 'top' : 'left']     = `calc(${pct(clip.startMin)}% + ${gap}mm)`;
+      bar.style[vertical ? 'height' : 'width'] = `calc(${pct(clip.endMin) - pct(clip.startMin)}% - ${BAR_GAP_MM}mm)`;
+      bar.style[vertical ? 'left' : 'top']     = `calc(${li * laneSize}% + ${gap}mm)`;
+      bar.style[vertical ? 'width' : 'height'] = `calc(${laneSize}% - ${BAR_GAP_MM}mm)`;
+
+      // 仮（募集中）の範囲は斜線
+      const tent = getTentativeRange(s);
+      if (tent && !s.absent) {
+        const tStart = Math.max(tent.start, clip.startMin);
+        const tEnd   = Math.min(tent.end, clip.endMin);
+        if (tEnd > tStart) {
+          const barSpan = clip.endMin - clip.startMin;
+          const ov = makeEl('div', 'bg-bar-tentative');
+          ov.style[vertical ? 'top' : 'left']     = `${(tStart - clip.startMin) / barSpan * 100}%`;
+          ov.style[vertical ? 'height' : 'width'] = `${(tEnd - tStart) / barSpan * 100}%`;
+          bar.appendChild(ov);
+        }
+      }
+
+      const name = emp.displayName || emp.name.slice(0, 2);
+      if (vertical) {
+        // 縦: 上端に開始、下端に終了、間に縦書きの名前
+        bar.appendChild(makeEl('span', 'bg-bar-time', s.fromPrevDay ? '前日' : minToTimeShort(s.startMin)));
+        bar.appendChild(makeEl('span', 'bg-bar-name', name));
+        if (s.absent) bar.appendChild(makeEl('span', 'bg-bar-absent', '当欠'));
+        bar.appendChild(makeEl('span', 'bg-bar-time', minToTimeShort(s.endMin)));
+      } else {
+        bar.appendChild(makeEl('span', 'bg-bar-name', name));
+        if (s.absent) bar.appendChild(makeEl('span', 'bg-bar-absent', '当欠'));
+        bar.appendChild(makeEl('span', 'bg-bar-time', getShiftTimeLabel(s)));
+      }
+      bars.appendChild(bar);
+    });
+  });
+
+  return { el: block, heightMm };
+}
+
+// 週のまとまりをページに詰める → 用紙（.sheet）の配列
+function buildPrintPages() {
+  const { orient } = printSettings;
+  const page  = PAGE_MM[orient];
+  const avail = page.h - PAGE_TITLE_MM - PAGE_LEGEND_MM;
+  const weekKeys = getPrintWeekKeys();
+  const blocks = weekKeys.map(buildWeekBlock);
+
+  // 1週で1ページを超える場合は、その週だけ縮小して収める
+  blocks.forEach(b => {
+    if (b.heightMm <= avail) return;
+    const scale = avail / b.heightMm;
+    const wrap = makeEl('div', 'week-block-scaled');
+    wrap.style.height = `${avail}mm`;
+    b.el.style.width = `${page.w / scale}mm`;
+    b.el.style.transform = `scale(${scale})`;
+    wrap.appendChild(b.el);
+    b.el = wrap;
+    b.heightMm = avail;
+  });
+
+  // 貪欲に詰める
+  const groups = [];
+  let cur = [], used = 0;
+  blocks.forEach(b => {
+    const need = b.heightMm + (cur.length ? BLOCK_GAP_MM : 0);
+    if (cur.length && used + need > avail) {
+      groups.push(cur);
+      cur = []; used = 0;
+    }
+    used += b.heightMm + (cur.length ? BLOCK_GAP_MM : 0);
+    cur.push(b);
+  });
+  if (cur.length) groups.push(cur);
+
+  const first = weekKeys[0], last = weekKeys[weekKeys.length - 1];
+  const target = isTemplateMode()
+    ? '（テンプレート）'
+    : `${formatWeekRange(first).split('〜')[0]}〜${formatWeekRange(last).split('〜')[1]}`;
+
+  return groups.map((group, pi) => {
+    const sheet = makeEl('div', `sheet sheet-${orient}`);
+    sheet.style.width  = `${page.w}mm`;
+    sheet.style.height = `${page.h}mm`;
+
+    const title = makeEl('div', 'sheet-title');
+    title.style.height = `${PAGE_TITLE_MM}mm`;
+    title.appendChild(makeEl('span', 'sheet-title-main', `シフト表　${target}`));
+    const right = makeEl('span', 'sheet-title-band', getPrintRangeTitle());
+    if (groups.length > 1) right.appendChild(makeEl('span', 'sheet-page', `${pi + 1} / ${groups.length}`));
+    title.appendChild(right);
+    sheet.appendChild(title);
+
+    const body = makeEl('div', 'sheet-body');
+    body.style.gap = `${BLOCK_GAP_MM}mm`;
+    group.forEach(b => body.appendChild(b.el));
+    sheet.appendChild(body);
+
+    const legend = makeEl('div', 'sheet-legend');
+    legend.style.height = `${PAGE_LEGEND_MM}mm`;
+    // 用紙と同じ見た目の見本（swatch の中身は用紙と同じ文字）
+    [
+      ['lg-bar',    '名前',  '勤務'],
+      ['lg-short',  '不足',  '人数不足'],
+      ['lg-empty',  '0人',   '誰もいない'],
+      ['lg-tent',   '',      '募集中（仮対応）'],
+      ['lg-absent', '当欠',  '当欠'],
+    ].forEach(([cls, inner, text]) => {
+      const item = makeEl('span', 'lg-item');
+      item.appendChild(makeEl('span', `lg-swatch ${cls}`, inner));
+      item.appendChild(document.createTextNode(text));
+      legend.appendChild(item);
+    });
+    sheet.appendChild(legend);
+    return sheet;
+  });
+}
+
+// 印刷できない状態のメッセージ（null なら印刷可）
+function getPrintBlocker() {
+  if (getPrintWeekKeys().every(k => !getTargetShifts(k))) {
+    return '選んだ週はまだ作成されていません。シフトタブの「この週を作成」から作成してください。';
+  }
+  return null;
+}
+
+// 印刷カードの表示を現在の設定に同期
+function renderPrintControls() {
+  const tmpl = isTemplateMode();
+  document.getElementById('print-week-label').textContent = tmpl
+    ? 'テンプレート（シフトタブで切り替え）'
+    : `${formatWeekRange(state.currentWeek)} から`;
+  document.getElementById('print-week-prev').classList.toggle('hidden', tmpl);
+  document.getElementById('print-week-next').classList.toggle('hidden', tmpl);
+  document.getElementById('print-weeks-row').classList.toggle('hidden', tmpl);
+
+  const { startMin, endMin } = printSettings;
+  document.getElementById('print-start').value = minToTimeInput(startMin);
+  document.getElementById('print-end').value   = minToTimeInput(endMin);
+  document.getElementById('print-range-info').textContent =
+    `${minToTimeShort(startMin)}〜${minToTimeShort(endMin)}（${formatDuration(endMin - startMin)}）`;
+
+  const active = findActivePreset();
+  document.querySelectorAll('#print-preset-seg button').forEach(b => {
+    b.classList.toggle('active', !!active && b.dataset.preset === active.name);
+  });
+  document.querySelectorAll('#print-weeks-seg button').forEach(b => {
+    b.classList.toggle('active', Number(b.dataset.weeks) === printSettings.weeks);
+  });
+  document.querySelectorAll('#print-orient-seg button').forEach(b => {
+    b.classList.toggle('active', b.dataset.orient === printSettings.orient);
+  });
+  document.getElementById('btn-print').disabled = !!getPrintBlocker();
+}
+
+function renderPrintPreview() {
+  renderPrintControls();
+  const preview = document.getElementById('print-preview');
+  preview.innerHTML = '';
+  const blocker = getPrintBlocker();
+  if (blocker) {
+    preview.appendChild(makeEl('div', 'empty-msg', blocker));
+    return;
+  }
+  // 用紙を実寸（mm）で作り、画面幅に合わせて縮小表示
+  const pages = buildPrintPages();
+  pages.forEach((sheet, i) => {
+    if (pages.length > 1) preview.appendChild(makeEl('div', 'sheet-caption', `${i + 1} / ${pages.length} ページ`));
+    const frame = makeEl('div', 'sheet-frame');
+    frame.appendChild(sheet);
+    preview.appendChild(frame);
+  });
+  fitPrintPreview();
+}
+
+function fitPrintPreview() {
+  const frames = document.querySelectorAll('#print-preview .sheet-frame');
+  if (frames.length === 0) return;
+  const parent = frames[0].parentElement;
+  const cs     = getComputedStyle(parent);
+  const avail  = parent.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  if (avail <= 0) return; // 非表示中
+  const mm2px = 96 / 25.4;
+  const { w, h } = PAGE_MM[printSettings.orient];
+  const scale = Math.min(1, avail / (w * mm2px));
+  frames.forEach(frame => {
+    frame.firstChild.style.transform = `scale(${scale})`;
+    frame.style.width  = `${w * mm2px * scale}px`;
+    frame.style.height = `${h * mm2px * scale}px`;
+  });
+}
+
+function printSheet() {
+  if (getPrintBlocker()) return;
+  const area = document.getElementById('print-area');
+  area.innerHTML = '';
+  buildPrintPages().forEach(sheet => area.appendChild(sheet));
+  // 用紙の向きを設定に合わせる
+  document.getElementById('print-page-style').textContent =
+    `@page { size: A4 ${printSettings.orient}; margin: 8mm; }`;
+  window.print();
+}
+
+// 印刷カードの操作
+function initPrintControls() {
+  const presetWrap = document.getElementById('print-preset-seg');
+  PRINT_PRESETS.forEach(p => {
+    const btn = makeEl('button', null, p.label);
+    btn.type = 'button';
+    btn.dataset.preset = p.name;
+    btn.addEventListener('click', () => {
+      document.getElementById('print-start').value = p.start;
+      document.getElementById('print-end').value   = p.end;
+      applyPrintRangeInputs();
+    });
+    presetWrap.appendChild(btn);
+  });
+  document.getElementById('print-start').addEventListener('change', applyPrintRangeInputs);
+  document.getElementById('print-end').addEventListener('change', applyPrintRangeInputs);
+
+  document.getElementById('print-week-prev').addEventListener('click', () => {
+    state.currentWeek = addDaysToKey(state.currentWeek, -7);
+    renderPrintPreview();
+  });
+  document.getElementById('print-week-next').addEventListener('click', () => {
+    state.currentWeek = addDaysToKey(state.currentWeek, 7);
+    renderPrintPreview();
+  });
+  document.querySelectorAll('#print-weeks-seg button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      printSettings.weeks = Number(btn.dataset.weeks);
+      savePrintSettings();
+      renderPrintPreview();
+    });
+  });
+  document.querySelectorAll('#print-orient-seg button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      printSettings.orient = btn.dataset.orient;
+      savePrintSettings();
+      renderPrintPreview();
+    });
+  });
+  document.getElementById('btn-print').addEventListener('click', printSheet);
+  window.addEventListener('resize', fitPrintPreview);
+}
+
+function applyPrintRangeInputs() {
+  const range = parsePrintRange(
+    document.getElementById('print-start').value,
+    document.getElementById('print-end').value
+  );
+  if (!range) {
+    alert('時間帯は15分以上の範囲を指定してください。');
+    renderPrintControls(); // 入力欄を元の値に戻す
+    return;
+  }
+  if (range.clamped) alert('終了時刻は翌6:00までです。翌6:00までに調整しました。');
+  printSettings.startMin = range.startMin;
+  printSettings.endMin   = range.endMin;
+  savePrintSettings();
+  renderPrintPreview();
 }
 
 // ========= 画像エクスポート（Canvas 2D） =========
@@ -1208,17 +1575,7 @@ function generateChartCanvas() {
   // シフトバー
   DAYS.forEach((day, di) => {
     const colX = TIME_W + di * DAY_W;
-    const dayShifts = getEffectiveShiftsForDay(day);
-    const sorted = [...dayShifts].sort((a, b) => a.startMin - b.startMin);
-
-    const laneEnds = [];
-    const layouts = sorted.map(shift => {
-      let lane = laneEnds.findIndex(e => e <= shift.startMin);
-      if (lane === -1) lane = laneEnds.length;
-      laneEnds[lane] = shift.endMin;
-      return { shift, lane };
-    });
-    const numLanes = Math.max(1, laneEnds.length);
+    const { layouts, numLanes } = assignLanes(getEffectiveShiftsForDay(day));
 
     layouts.forEach(({ shift, lane }) => {
       const emp = state.employees.find(e => e.id === shift.empId);
@@ -1355,18 +1712,6 @@ async function exportChartImage() {
     }
     openImageFallback(canvas);
   }, 'image/png');
-}
-
-function renderPrintPreview() {
-  const preview = document.getElementById('print-preview');
-  preview.innerHTML = '';
-  preview.appendChild(buildPrintChart());
-}
-
-function renderPrintArea() {
-  const area = document.getElementById('print-area');
-  area.innerHTML = '';
-  area.appendChild(buildPrintChart());
 }
 
 // ========= 曜日トグルボタン =========
@@ -2035,6 +2380,9 @@ function init() {
   document.getElementById('modal-req').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeReqModal();
   });
+
+  // === 印刷 ===
+  initPrintControls();
 
   // === 画像保存 ===
   document.getElementById('btn-save-image').addEventListener('click', exportChartImage);

@@ -15,7 +15,6 @@
   --header-h: 56px;
   --tab-h: 44px;
   --hour-h: 24px;
-  --print-hour-h: 22px; /* 印刷バーチャートの1時間あたりの高さ（@media printで上書き） */
 }
 
 html, body {
@@ -917,10 +916,6 @@ html, body {
   overflow: auto; /* 横スクロールも許可（幅広グリッド対応） */
 }
 
-#print-preview {
-  padding: 12px;
-}
-
 #data-section {
   padding: 16px;
   border-top: 8px solid var(--bg);
@@ -967,145 +962,405 @@ html, body {
   line-height: 1.4;
 }
 
-/* ========= 印刷バーチャート（画面プレビュー用） ========= */
-.print-chart {
+/* ========= 印刷カード（設定） ========= */
+#print-section {
+  padding: 16px 16px 0;
+}
+
+.print-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.print-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.print-row-label {
+  width: 48px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  padding-top: 7px;
+}
+
+.print-week {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* セグメントボタン */
+.seg {
+  display: flex;
+  gap: 6px;
+}
+.seg-wrap { flex-wrap: wrap; }
+
+.seg button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 16px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.seg button.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* 時間帯（開始・終了の入力 + プリセット） */
+.print-range {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.print-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.print-range-inputs input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 6px;
+  font-size: 14px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.print-range-info {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.print-btn { align-self: flex-end; }
+.print-btn:disabled { opacity: .4; cursor: default; }
+
+/* ========= プレビュー（用紙を実寸で作って縮小表示） ========= */
+#print-preview {
+  padding: 12px 16px 16px;
+}
+
+.sheet-frame {
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,.25);
+  background: #fff;
+}
+
+.sheet-frame .sheet { transform-origin: top left; }
+.sheet-frame + .sheet-caption { margin-top: 14px; }
+
+.sheet-caption {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+/* ========= 用紙（時間帯別シフト表） ========= */
+.sheet {
   display: flex;
   flex-direction: column;
   background: #fff;
-  width: 100%;
+  color: #111;
   font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif;
+  box-sizing: border-box;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
-.print-chart-header {
+.sheet-title {
   display: flex;
-  border-bottom: 1px solid #999;
-}
-
-.print-corner {
-  width: 40px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 0 1mm;
+  box-sizing: border-box;
   flex-shrink: 0;
-  background: #e5e7eb;
-  border-right: 1.5px solid #333;
 }
+.sheet-page { margin-left: 3mm; font-size: 10pt; font-weight: 600; color: #555; }
 
-.print-day-hdr {
+/* 週のまとまりを縦に並べる（高さは内容で決まる。短い時間帯なら用紙の一部だけ使う） */
+.sheet-body {
   flex: 1;
-  text-align: center;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 4px 0;
-  background: #e5e7eb;
-  border-left: 0.5px solid #aaa;
-}
-
-.print-chart-body {
+  min-height: 0;
   display: flex;
-  border-left: 0.5px solid #aaa;
-  border-bottom: 0.5px solid #aaa;
-  border-top: 2px solid #333; /* 3:00 の帯線を兼ねる */
+  flex-direction: column;
+  align-items: flex-start;
 }
 
-.print-time-axis {
-  width: 40px;
-  flex-shrink: 0;
+.week-block { width: 100%; }
+.week-block-label {
+  height: 6mm;
+  font-size: 10pt;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+}
+.week-block-empty {
+  height: 10mm;
+  display: flex;
+  align-items: center;
+  padding-left: 3mm;
+  font-size: 10pt;
+  color: #666;
+  border: 1px dashed #999;
+  box-sizing: border-box;
+}
+.week-block-scaled { overflow: hidden; width: 100%; }
+.week-block-scaled > .week-block { transform-origin: top left; }
+.sheet-title-main { font-size: 14pt; font-weight: 700; }
+.sheet-title-band { font-size: 13pt; font-weight: 700; }
+
+.band-grid {
+  display: grid;
+  border: 1.5px solid #333;
+  box-sizing: border-box;
+}
+
+/* 時間軸 縦: 列 = 日付、行 = 時刻 */
+/* 行・列のサイズは buildWeekBlock で指定（1時間の長さを固定） */
+.band-grid-v {
+  width: 100%;
+  grid-auto-flow: column;
+}
+.band-grid-v .bg-corner { grid-row: 1; grid-column: 1; }
+.band-grid-v .bg-axis   { grid-row: 2; grid-column: 1; border-right: 1.5px solid #333; }
+.band-grid-v .bg-day-hdr { grid-row: 1; border-left: 1px solid #999; border-bottom: 1.5px solid #333; }
+.band-grid-v .bg-lane    { grid-row: 2; border-left: 2px solid #111; }
+
+/* 時間軸 横: 行 = 日付、列 = 時刻 */
+.band-grid-h {
+  width: max-content;
+}
+.band-grid-h .bg-axis    { border-bottom: 1.5px solid #333; }
+.band-grid-h .bg-day-hdr { border-top: 2px solid #111; border-right: 1.5px solid #333; }
+.band-grid-h .bg-lane    { border-top: 2px solid #111; }
+.band-grid-h .bg-corner  { border-right: 1.5px solid #333; border-bottom: 1.5px solid #333; }
+
+.bg-corner { background: #eee; }
+
+.bg-axis {
   position: relative;
-  height: calc(27 * var(--print-hour-h));
-  border-right: 1.5px solid #333;
+  background: #fafafa;
 }
 
-.print-time-lbl {
+.bg-axis-lbl {
   position: absolute;
-  right: 3px;
-  font-size: 8px;
-  color: #6b7280;
-  transform: translateY(-50%);
+  font-size: 8pt;
+  color: #555;
   white-space: nowrap;
   line-height: 1;
 }
+.bg-axis-lbl.bold { font-weight: 700; color: #000; font-size: 9pt; }
+.band-grid-v .bg-axis-lbl { right: 1.5mm; transform: translateY(-50%); }
+.band-grid-h .bg-axis-lbl { bottom: 1.5mm; padding-left: 0.6mm; }
+/* 端のラベルが枠からはみ出さないように */
+.band-grid-v .bg-axis-lbl.edge-start { transform: none; }
+.band-grid-v .bg-axis-lbl.edge-end   { transform: translateY(-100%); }
+.band-grid-h .bg-axis-lbl.edge-start { transform: none; }
+.band-grid-h .bg-axis-lbl.edge-end   { transform: translateX(-100%); padding: 0 0.6mm 0 0; }
 
-.print-time-bold {
-  font-weight: 700;
-  color: #111;
-}
-
-.print-lanes {
-  flex: 1;
-  position: relative;
-  height: calc(27 * var(--print-hour-h));
-  border-right: 1.5px solid #333;
-  overflow: hidden;
-}
-
-.print-hline {
-  position: absolute;
-  left: 0;
-  right: 0;
-  border-top: 0.5px solid #e0e0e0;
-}
-
-.print-band-line {
-  border-top-width: 1.5px;
-  border-top-color: #333;
-}
-
-.print-bar {
-  position: absolute;
-  z-index: 1;
-  border-radius: 2px;
-  border: 1.5px solid rgba(255,255,255,0.9);
-  overflow: hidden;
-  padding: 1px 2px;
-  color: #fff;
+/* ---- 以下、用紙は白黒印刷前提: 色に頼らず模様・線・文字で区別する ---- */
+.bg-day-hdr {
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: flex-start;
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
-}
-
-.print-bar-start,
-.print-bar-end {
-  font-size: 7px;
+  align-items: center;
+  justify-content: center;
+  gap: 1mm;
+  background: #eee;
   font-weight: 500;
-  color: rgba(255,255,255,0.9);
-  line-height: 1.15;
-  white-space: nowrap;
-  flex-shrink: 0;
+  font-size: 11pt;
 }
+.band-grid-h .bg-day-hdr { font-size: 9pt; gap: 0; }
+.band-grid-h .bg-day-wd { font-size: 8pt; }
+.bg-day-wd { font-size: 9pt; }
+/* 土日は色ではなく太字 */
+.bg-day-hdr.sat,
+.bg-day-hdr.sun { font-weight: 900; }
 
-.print-bar-name {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  font-size: 8px;
-  font-weight: 700;
+.bg-lane {
+  position: relative;
   overflow: hidden;
-  line-height: 1.2;
-  flex-shrink: 0;
-  align-self: center;
 }
 
-.print-shortage-ov {
+/* 目盛り線 */
+.bg-line { position: absolute; }
+.band-grid-v .bg-line { left: 0; right: 0; border-top: 0.5px solid #bbb; }
+.band-grid-h .bg-line { top: 0; bottom: 0; border-left: 0.5px solid #bbb; }
+.band-grid-v .bg-line.minor { border-top-style: dotted; border-top-color: #ccc; }
+.band-grid-h .bg-line.minor { border-left-style: dotted; border-left-color: #ccc; }
+.band-grid-v .bg-line.band { border-top: 1.5px solid #000; }
+.band-grid-h .bg-line.band { border-left: 1.5px solid #000; }
+
+/* 人数不足: 空いている場所は網点（0人は濃い網点） */
+.bg-shortage {
   position: absolute;
-  z-index: 0;
-  left: 0;
-  right: 0;
-  pointer-events: none;
-  background: rgba(252, 165, 165, 0.5);
-  border-left: 3px solid #f87171;
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
+  background-image: radial-gradient(circle, #000 0.28mm, transparent 0.3mm);
+  background-size: 1.4mm 1.4mm;
 }
-.print-shortage-ov.print-shortage-ov-empty {
-  background: rgba(220, 38, 38, 0.32);
-  border-left-color: #dc2626;
+.bg-shortage.empty {
+  background-image: radial-gradient(circle, #000 0.42mm, transparent 0.44mm);
+  background-size: 1.1mm 1.1mm;
+}
+.band-grid-v .bg-shortage { left: 0; right: 0; }
+.band-grid-h .bg-shortage { top: 0; bottom: 0; }
+
+/* 人数不足: 先頭の帯に太い点線枠 +「不足◯」「0人」 */
+.bg-shortage-mark {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  border: 0.55mm dotted #000;
+  background: #fff;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bg-shortage-mark.empty { background: #000; border-style: solid; }
+.band-grid-v .bg-shortage-mark { left: 0; width: 5mm; }  /* STRIP_MM */
+.band-grid-h .bg-shortage-mark { top: 0; height: 5mm; }
+.bg-shortage-lbl {
+  font-size: 7.5pt;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  color: #000;
+}
+.bg-shortage-mark.empty .bg-shortage-lbl { color: #fff; }
+.band-grid-v .bg-shortage-lbl { writing-mode: vertical-rl; text-orientation: upright; letter-spacing: -0.5pt; }
+
+/* バーの配置領域（先頭は人数不足の帯用に空ける） */
+.bg-bars { position: absolute; inset: 0; }
+.band-grid-v .bg-bars { left: 5mm; }  /* STRIP_MM */
+.band-grid-h .bg-bars { top: 5mm; }
+
+/* 勤務バー: 白地に黒枠 */
+.bg-bar {
+  position: absolute;
+  box-sizing: border-box;
+  background: #fff;
+  border: 0.35mm solid #000;
+  border-radius: 1mm;
+  color: #000;
+  overflow: hidden;
+  display: flex;
+  gap: 0.5mm;
+  padding: 0.8mm;
+}
+.band-grid-v .bg-bar {
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  container-type: inline-size; /* 時刻の文字サイズをバー幅に合わせる */
+  padding: 0.6mm 0.3mm;
+}
+.band-grid-h .bg-bar { flex-direction: row; align-items: center; flex-wrap: wrap; align-content: center; column-gap: 2mm; }
+
+/* 文字は斜線の上でも読めるよう白い下地 */
+.bg-bar-name,
+.bg-bar-time {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  white-space: nowrap;
+  line-height: 1.1;
 }
 
-/* 画面プレビュー: 列幅の最小値を保証して時刻が切れないようにする */
-@media screen {
-  .print-day-hdr,
-  .print-lanes { min-width: 80px; }
+.bg-bar-name {
+  font-weight: 700;
+  font-size: 11pt;
 }
+.band-grid-v .bg-bar-name {
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  font-size: min(11pt, 70cqw);
+}
+
+.bg-bar-time { font-size: 8pt; }
+.band-grid-v .bg-bar-time { font-size: min(7.5pt, 30cqw); flex-shrink: 0; }
+
+/* 当欠: 破線枠 + 名前に取り消し線 + 黒地白抜きの「当欠」 */
+.bg-bar.absent { border-style: dashed; }
+.bg-bar.absent .bg-bar-name {
+  text-decoration: line-through;
+  text-decoration-thickness: 0.4mm;
+}
+.bg-bar-absent {
+  position: relative;
+  z-index: 1;
+  font-size: 8pt;
+  font-weight: 900;
+  color: #fff;
+  background: #000;
+  border-radius: 0.8mm;
+  padding: 0 0.8mm;
+  white-space: nowrap;
+}
+.band-grid-v .bg-bar-absent { font-size: min(8pt, 30cqw); flex-shrink: 0; }
+
+/* 仮（募集中）の範囲: 斜線 */
+.bg-bar-tentative {
+  position: absolute;
+  background: repeating-linear-gradient(135deg,
+    transparent 0, transparent 1.1mm,
+    #000 1.1mm, #000 1.45mm);
+}
+.band-grid-v .bg-bar-tentative { left: 0; right: 0; }
+.band-grid-h .bg-bar-tentative { top: 0; bottom: 0; }
+
+/* 凡例（用紙と同じ見た目の見本） */
+.sheet-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4mm;
+  align-items: center;
+  padding: 0 1mm 0 0;
+  box-sizing: border-box;
+  font-size: 8pt;
+  color: #000;
+  flex-shrink: 0;
+}
+.lg-item { display: inline-flex; align-items: center; gap: 1mm; }
+.lg-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 8mm;
+  height: 4.4mm;
+  padding: 0 0.6mm;
+  box-sizing: border-box;
+  font-size: 6.5pt;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+.lg-bar    { background: #fff; border: 0.35mm solid #000; border-radius: 0.8mm; font-weight: 700; }
+.lg-short  { background: #fff; border: 0.5mm dotted #000; }
+.lg-empty  { background: #000; color: #fff; }
+.lg-tent   { border: 0.35mm solid #000; border-radius: 0.8mm; background: repeating-linear-gradient(135deg, #fff 0, #fff 1.1mm, #000 1.1mm, #000 1.45mm); }
+.lg-absent { background: #000; color: #fff; border-radius: 0.8mm; }
 
 /* 仮の時間範囲入力行 */
 .tentative-range-row {
@@ -1419,44 +1674,17 @@ html, body {
 #print-area { display: none; }
 
 @media print {
+  /* 用紙の向きと余白は index.html の #print-page-style（印刷ボタンで書き換え） */
   html, body {
-    width: 297mm;
-    height: 210mm;
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-  }
-
-  body * { visibility: hidden; }
-
-  #print-area, #print-area * { visibility: visible; }
-
-  #print-area {
-    display: block;
-    position: fixed;
-    inset: 0;
+    height: auto;
+    overflow: visible;
     background: #fff;
-    padding: 4mm;
-    box-sizing: border-box;
   }
 
-  /* 印刷時: 1時間あたりの高さを mm 単位に切り替え（27h × 6.5mm = 175.5mm、A4 横に収まる） */
-  :root { --print-hour-h: 6.5mm; }
+  body > *:not(#print-area) { display: none !important; }
 
-  #print-area .print-time-axis,
-  #print-area .print-corner { width: 12mm; }
+  #print-area { display: block; }
 
-  #print-area .print-bar {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  #print-area .print-bar-start,
-  #print-area .print-bar-end   { font-size: 7.5pt; }
-  #print-area .print-bar-name  { font-size: 9pt; }
-  #print-area .print-time-lbl  { font-size: 7pt; }
-  #print-area .print-time-bold { font-size: 8pt; font-weight: 700; color: #000; }
-  #print-area .print-day-hdr   { font-size: 11pt; }
-
-  @page { size: A4 landscape; margin: 8mm; }
+  #print-area .sheet { break-inside: avoid; break-after: page; }
+  #print-area .sheet:last-child { break-after: auto; }
 }

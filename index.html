@@ -10,6 +10,8 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icon.svg" />
   <link rel="stylesheet" href="style.css" />
+  <!-- 印刷時の用紙向き（印刷ボタンで書き換える） -->
+  <style id="print-page-style">@page { size: A4 portrait; margin: 8mm; }</style>
 </head>
 <body>
   <div id="app">
@@ -163,6 +165,48 @@
             </div>
             <button id="btn-cloud-load" class="btn-secondary">更新</button>
             <button id="btn-cloud-save" class="btn-primary">クラウドに保存</button>
+          </div>
+        </div>
+        <div id="print-section">
+          <div class="data-section-title">印刷</div>
+          <div class="print-card">
+            <div class="print-row">
+              <span class="print-row-label">開始週</span>
+              <div class="print-week">
+                <button id="print-week-prev" class="week-nav-btn" aria-label="前の週">◀</button>
+                <span id="print-week-label"></span>
+                <button id="print-week-next" class="week-nav-btn" aria-label="次の週">▶</button>
+              </div>
+            </div>
+            <div class="print-row" id="print-weeks-row">
+              <span class="print-row-label">週数</span>
+              <div id="print-weeks-seg" class="seg">
+                <button type="button" data-weeks="1">1週</button>
+                <button type="button" data-weeks="2">2週</button>
+                <button type="button" data-weeks="3">3週</button>
+                <button type="button" data-weeks="4">4週</button>
+              </div>
+            </div>
+            <div class="print-row">
+              <span class="print-row-label">時間帯</span>
+              <div class="print-range">
+                <div class="print-range-inputs">
+                  <input type="time" id="print-start" step="900" aria-label="開始時刻" />
+                  <span>〜</span>
+                  <input type="time" id="print-end" step="900" aria-label="終了時刻" />
+                </div>
+                <div id="print-range-info" class="print-range-info"></div>
+                <div id="print-preset-seg" class="seg seg-wrap"></div>
+              </div>
+            </div>
+            <div class="print-row">
+              <span class="print-row-label">時間軸</span>
+              <div id="print-orient-seg" class="seg">
+                <button type="button" data-orient="portrait">縦（A4縦）</button>
+                <button type="button" data-orient="landscape">横（A4横）</button>
+              </div>
+            </div>
+            <button id="btn-print" class="btn-primary print-btn">印刷</button>
           </div>
         </div>
         <div id="print-preview"></div>
