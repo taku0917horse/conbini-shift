@@ -1,4 +1,4 @@
-const CACHE = 'conbini-shift-v5';
+const CACHE = 'conbini-shift-v7';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './sync.js', './firebase-config.js', './manifest.json'];
 
 self.addEventListener('install', e => {

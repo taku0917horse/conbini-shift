@@ -59,6 +59,56 @@ function minToPx(m) {
   return (m / 60) * HOUR_H;
 }
 
+// ========= 週（日付）ユーティリティ =========
+// 週は月曜始まり。週キーは月曜日の日付 'YYYY-MM-DD'（ローカル時刻）
+
+// 3:00 区切りの営業日（0:00〜2:59 は前日扱い）
+function getBusinessDate(now) {
+  const d = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function toDateKey(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function parseDateKey(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function getWeekKey(date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+  return toDateKey(d);
+}
+
+function addDaysToKey(key, n) {
+  const d = parseDateKey(key);
+  d.setDate(d.getDate() + n);
+  return toDateKey(d);
+}
+
+// 週キー + 曜日 → その日の Date
+function getDateOfDay(weekKey, day) {
+  const d = parseDateKey(weekKey);
+  d.setDate(d.getDate() + DAYS.indexOf(day));
+  return d;
+}
+
+function formatMD(d) {
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+// 例: 9/21(月)〜9/27(日)。今年以外は年を付ける
+function formatWeekRange(weekKey) {
+  const mon = parseDateKey(weekKey);
+  const sun = parseDateKey(addDaysToKey(weekKey, 6));
+  const year = mon.getFullYear() !== new Date().getFullYear() ? `${mon.getFullYear()}/` : '';
+  return `${year}${formatMD(mon)}(月)〜${formatMD(sun)}(日)`;
+}
+
 const PRESETS = [
   ['3-6',   '03:00', '06:00'],
   ['6-9',   '06:00', '09:00'],
@@ -96,11 +146,27 @@ HOUR_H = HOUR_SIZES[hourSizeIdx];
 let rawReqs = store.load('requirements', []);
 if (!Array.isArray(rawReqs)) rawReqs = [];
 
+// テンプレート（固定週パターン）: [{ id, empId, day, startMin, endMin, breakMin, tentativeStart, tentativeEnd }]
+// 旧データ（'shifts' キー）はテンプレートとして自動移行。旧キーはバックアップとして残す
+let rawTemplate = store.load('templateShifts', null);
+if (!Array.isArray(rawTemplate)) {
+  rawTemplate = store.load('shifts', []);
+  if (!Array.isArray(rawTemplate)) rawTemplate = [];
+  store.save('templateShifts', rawTemplate);
+}
+
+// 週データ: { 'YYYY-MM-DD'(月曜日): { createdAt, shifts: [テンプレートと同形式 + absent] } }
+let rawWeeks = store.load('weeks', {});
+if (!rawWeeks || typeof rawWeeks !== 'object' || Array.isArray(rawWeeks)) rawWeeks = {};
+
 const state = {
-  employees:     store.load('employees', []),
-  shifts:        store.load('shifts', []),
-  requirements:  rawReqs,
-  currentDay:    '月',
+  employees:      store.load('employees', []),
+  templateShifts: rawTemplate,
+  weeks:          rawWeeks,
+  requirements:   rawReqs,
+  mode:           'week',        // 'week'（日付付きの週） | 'template'
+  currentWeek:    getWeekKey(getBusinessDate(new Date())),
+  currentDay:     '月',
   editingShiftId: null,
   editingEmpId:   null,
   editingReqId:   null,
@@ -112,7 +178,11 @@ const state = {
 
 function touchDataDate() { store.save('currentDataDate', new Date().toISOString()); }
 function saveEmployees() { store.save('employees', state.employees); touchDataDate(); }
-function saveShifts()    { store.save('shifts', state.shifts); touchDataDate(); }
+function saveShifts() {
+  store.save('templateShifts', state.templateShifts);
+  store.save('weeks', state.weeks);
+  touchDataDate();
+}
 function saveReqs()      { store.save('requirements', state.requirements); touchDataDate(); }
 function uid()           { return Math.random().toString(36).slice(2, 10); }
 
@@ -130,24 +200,36 @@ function getTentativeRange(shift) {
 // ========= 全データの取り出し・反映（エクスポート／インポート／クラウド同期で共用） =========
 function getAllData() {
   return {
-    employees:    state.employees,
-    shifts:       state.shifts,
-    requirements: state.requirements,
+    employees:      state.employees,
+    templateShifts: state.templateShifts,
+    weeks:          state.weeks,
+    requirements:   state.requirements,
   };
 }
 
-function isValidAllData(d) {
-  return !!d && Array.isArray(d.employees) && Array.isArray(d.shifts) && Array.isArray(d.requirements);
+// 読み込んだデータを現行形式に揃える。不正なら null。
+// 旧形式（shifts のみ・週データなし）は shifts をテンプレートとして扱う
+function normalizeAllData(d) {
+  if (!d || !Array.isArray(d.employees) || !Array.isArray(d.requirements)) return null;
+  const templateShifts = Array.isArray(d.templateShifts) ? d.templateShifts
+                       : Array.isArray(d.shifts)         ? d.shifts
+                       : null;
+  if (!templateShifts) return null;
+  const weeks = d.weeks && typeof d.weeks === 'object' && !Array.isArray(d.weeks) ? d.weeks : {};
+  return { employees: d.employees, templateShifts, weeks, requirements: d.requirements };
 }
 
+// d は normalizeAllData 済みのデータ。
 // dataDate: 反映するデータの日時（ISO文字列）。saveXxx 経由だと touchDataDate が走るため直接書き込む
 function applyAllData(d, dataDate) {
-  state.employees    = d.employees;
-  state.shifts       = d.shifts;
-  state.requirements = d.requirements;
-  store.save('employees',    d.employees);
-  store.save('shifts',       d.shifts);
-  store.save('requirements', d.requirements);
+  state.employees      = d.employees;
+  state.templateShifts = d.templateShifts;
+  state.weeks          = d.weeks;
+  state.requirements   = d.requirements;
+  store.save('employees',      d.employees);
+  store.save('templateShifts', d.templateShifts);
+  store.save('weeks',          d.weeks);
+  store.save('requirements',   d.requirements);
   store.save('currentDataDate', dataDate ?? new Date().toISOString());
 }
 
@@ -167,7 +249,7 @@ function formatDatetime(d) {
 function exportData() {
   const now     = new Date();
   const payload = {
-    version:    1,
+    version:    2,
     exportedAt: now.toISOString(),
     data:       getAllData(),
   };
@@ -204,13 +286,13 @@ function handleImport(file) {
       return;
     }
 
-    // バリデーション
-    if (payload.version !== 1) {
+    // バリデーション（version 1 = 週データ導入前。shifts はテンプレートとして読み込む）
+    if (payload.version !== 1 && payload.version !== 2) {
       alert(`非対応のデータ形式です（version: ${payload.version ?? '不明'}）`);
       return;
     }
-    const d = payload.data;
-    if (!isValidAllData(d)) {
+    const d = normalizeAllData(payload.data);
+    if (!d) {
       alert('データ構造が正しくありません。');
       return;
     }
@@ -243,17 +325,73 @@ function getPrevDay(day) {
   return DAYS[(DAYS.indexOf(day) + 6) % 7];
 }
 
+// ========= 表示・編集対象（テンプレート or 選択中の週） =========
+function isTemplateMode() { return state.mode === 'template'; }
+
+function getWeek(weekKey) { return state.weeks[weekKey] || null; }
+
+// 表示・編集対象のシフト配列。未作成の週は null
+function getTargetShifts() {
+  if (isTemplateMode()) return state.templateShifts;
+  const week = getWeek(state.currentWeek);
+  return week ? week.shifts : null;
+}
+
+function findTargetShift(id) {
+  return (getTargetShifts() || []).find(s => s.id === id) || null;
+}
+
+// テンプレートと全週のシフト配列（従業員の削除・店長フラグ解除で使う）
+function getAllShiftLists() {
+  return [state.templateShifts, ...Object.values(state.weeks).map(w => w.shifts)];
+}
+
+// 表示中の対象名（例: 9/21(月)〜9/27(日) / テンプレート）
+function getTargetLabel() {
+  return isTemplateMode() ? 'テンプレート' : formatWeekRange(state.currentWeek);
+}
+
+// テンプレートをコピーして週データを作る
+function createWeekFromTemplate(weekKey) {
+  state.weeks[weekKey] = {
+    createdAt: new Date().toISOString(),
+    shifts: state.templateShifts.map(s => ({ ...s, id: uid(), absent: false })),
+  };
+  saveShifts();
+}
+
+// 削除済みの従業員は過去の週の表示用に残る（deleted: true）
+function getActiveEmployees() { return state.employees.filter(e => !e.deleted); }
+
+function getEmpLabel(emp) { return emp.deleted ? `(削除済み)${emp.name}` : emp.name; }
+
+// 今週（3:00 区切り）の週キー
+function getThisWeekKey() { return getWeekKey(getBusinessDate(new Date())); }
+
+// 人数に数えるシフトか（当欠は数えない。仮＝募集中は数える）
+function isCounted(shift) { return !shift.absent; }
+
 // 指定曜日の実効シフト（自日分 + 前日からの日またぎ分を当日座標に変換）
+// 週表示の月曜は前週の日曜から日またぎ分を持ってくる（fromPrevWeek で識別）
 function getEffectiveShiftsForDay(day) {
+  const shifts  = getTargetShifts() || [];
   const prevDay = getPrevDay(day);
-  const own = state.shifts.filter(s => s.day === day);
-  const overflow = state.shifts
+  let prevShifts = shifts;
+  let fromPrevWeek = false;
+  if (!isTemplateMode() && day === DAYS[0]) {
+    const prevWeek = getWeek(addDaysToKey(state.currentWeek, -7));
+    prevShifts   = prevWeek ? prevWeek.shifts : [];
+    fromPrevWeek = true;
+  }
+  const own = shifts.filter(s => s.day === day);
+  const overflow = prevShifts
     .filter(s => s.day === prevDay && s.endMin > 1440)
     .map(s => ({
       ...s,
       day,
       startMin: Math.max(0, s.startMin - 1440),
       endMin:   s.endMin - 1440,
+      fromPrevWeek,
     }));
   return [...own, ...overflow];
 }
@@ -284,7 +422,8 @@ function getRequiredCount(day, min) {
 
 // 曜日の不足区間をイベントベースで計算し、連続区間をマージして返す
 function computeShortages(day) {
-  const dayShifts = getEffectiveShiftsForDay(day);
+  if (!getTargetShifts()) return [];  // 未作成の週
+  const dayShifts = getEffectiveShiftsForDay(day).filter(isCounted);
   const dayReqs   = getEffectiveReqsForDay(day);
   if (dayReqs.length === 0) return [];
 
@@ -321,7 +460,8 @@ function computeShortages(day) {
 
 // 印刷・画像用：不足区間を { startMin, endMin, isEmpty } の配列で返す
 function getShortageOverlays(day) {
-  const dayShifts = getEffectiveShiftsForDay(day);
+  if (!getTargetShifts()) return [];  // 未作成の週
+  const dayShifts = getEffectiveShiftsForDay(day).filter(isCounted);
   const dayReqs   = getEffectiveReqsForDay(day);
   if (dayReqs.length === 0) return [];
   const bp = new Set([0, MAX_MIN]);
@@ -356,6 +496,52 @@ function cycleHourSize() {
   renderShiftChart();
 }
 
+// ========= 週バー（週切り替え・テンプレート切り替え）と曜日タブ =========
+function renderWeekBar() {
+  const tmpl    = isTemplateMode();
+  const created = !!getTargetShifts();
+
+  document.getElementById('week-bar').classList.toggle('template-mode', tmpl);
+  document.getElementById('week-label').textContent = tmpl
+    ? 'テンプレート（毎週の基本パターン）'
+    : formatWeekRange(state.currentWeek);
+  document.getElementById('week-date-input').value = state.currentWeek;
+  document.getElementById('btn-mode-toggle').textContent = tmpl ? '週表示に戻る' : 'テンプレート';
+  const status = document.getElementById('week-status');
+  status.classList.toggle('hidden', tmpl);
+  status.classList.toggle('created', created);
+  document.getElementById('week-status-text').textContent = created
+    ? 'この週のシフト'
+    : 'この週のシフトはまだ作成されていません';
+  document.getElementById('btn-create-week').classList.toggle('hidden', created);
+  document.getElementById('btn-recreate-week').classList.toggle('hidden', !created);
+
+  const addBtn = document.getElementById('btn-add-shift');
+  addBtn.disabled = !created;
+
+  // 曜日タブ（週表示は日付を併記、今日を強調）
+  const todayKey = toDateKey(getBusinessDate(new Date()));
+  document.querySelectorAll('.day-tab').forEach(tab => {
+    const day = tab.dataset.day;
+    tab.textContent = '';
+    tab.appendChild(document.createTextNode(day));
+    tab.classList.remove('today');
+    if (!tmpl) {
+      const date = getDateOfDay(state.currentWeek, day);
+      const sub  = document.createElement('span');
+      sub.className   = 'day-tab-date';
+      sub.textContent = formatMD(date);
+      tab.appendChild(sub);
+      tab.classList.toggle('today', toDateKey(date) === todayKey);
+    }
+  });
+}
+
+function setCurrentWeek(weekKey) {
+  state.currentWeek = weekKey;
+  renderShiftChart();
+}
+
 // ========= シフトチャート描画 =========
 function renderShiftChart() {
   const day     = state.currentDay;
@@ -371,6 +557,8 @@ function renderShiftChart() {
   // トグルボタンのラベルを現在モードに同期
   const sizeBtn = document.getElementById('btn-hour-size');
   if (sizeBtn) sizeBtn.textContent = HOUR_SIZE_LABELS[hourSizeIdx];
+
+  renderWeekBar();
 
   // 区分開始時刻（3:00起点のhインデックス）→ ラベル太字
   const CHART_BOLD_H = new Set([0, 3, 6, 14, 19]); // 3/6/9/17/22時
@@ -439,30 +627,45 @@ function renderShiftChart() {
       }
     }
 
+    if (shift.absent) bar.classList.add('is-absent');
+
     const startEl = document.createElement('span');
     startEl.className   = 'bar-start-time';
     startEl.textContent = minToTimeShort(shift.startMin);
     bar.appendChild(startEl);
     const nameEl = document.createElement('span');
     nameEl.className   = 'bar-emp-name';
-    nameEl.textContent = emp.name;
+    nameEl.textContent = getEmpLabel(emp);
     bar.appendChild(nameEl);
+    if (shift.absent) {
+      const abs = document.createElement('span');
+      abs.className   = 'bar-absent';
+      abs.textContent = '当欠';
+      bar.appendChild(abs);
+    }
     if (shift.breakMin > 0) {
       const brk = document.createElement('span');
       brk.className   = 'bar-break';
       brk.textContent = `休${shift.breakMin}`;
       bar.appendChild(brk);
     }
-    bar.addEventListener('click', () => openShiftModal(shift.id));
+    bar.addEventListener('click', () => {
+      if (shift.fromPrevWeek) {
+        alert('前週の日曜日からの勤務です。前週に切り替えて編集してください。');
+        return;
+      }
+      openShiftModal(shift.id);
+    });
     lanes.appendChild(bar);
   });
 
-  // 不足オーバーレイ（1時間単位）
-  for (let h = 0; h < TOTAL_HOURS; h++) {
+  // 不足オーバーレイ（1時間単位）。未作成の週は表示しない
+  const countedShifts = dayShifts.filter(isCounted);
+  for (let h = 0; h < TOTAL_HOURS && getTargetShifts(); h++) {
     const hMin     = h * 60;
     const required = getRequiredCount(day, hMin);
     if (required === 0) continue;
-    const count = dayShifts.filter(s => s.startMin <= hMin && s.endMin > hMin).length;
+    const count = countedShifts.filter(s => s.startMin <= hMin && s.endMin > hMin).length;
     if (count >= required) continue;
 
     const block = document.createElement('div');
@@ -511,7 +714,8 @@ function renderEmployeeList() {
   const ul = document.getElementById('employee-list');
   ul.innerHTML = '';
 
-  if (state.employees.length === 0) {
+  const employees = getActiveEmployees();
+  if (employees.length === 0) {
     const li = document.createElement('li');
     li.className   = 'empty-msg';
     li.textContent = '従業員を追加してください';
@@ -522,7 +726,7 @@ function renderEmployeeList() {
   // 区分ごとにグループ化
   const catMap = new Map(CATEGORIES.map(c => [c, []]));
   const uncategorized = [];
-  state.employees.forEach(emp => {
+  employees.forEach(emp => {
     if (catMap.has(emp.category)) catMap.get(emp.category).push(emp);
     else uncategorized.push(emp);
   });
@@ -598,11 +802,17 @@ function renderReqRules() {
 function renderShortageList() {
   const list = document.getElementById('shortage-list');
   list.innerHTML = '';
+  renderReqTargetLabel();
 
   // フィルタボタンのアクティブ状態を同期
   document.querySelectorAll('.shortage-filter-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.band === shortageFilterId);
   });
+
+  if (!getTargetShifts()) {
+    list.innerHTML = '<div class="empty-msg" style="padding-top:48px">この週はまだ作成されていません<br>（シフトタブの「この週を作成」から作成できます）</div>';
+    return;
+  }
 
   const band = SHORTAGE_BANDS.find(b => b.id === shortageFilterId);
 
@@ -625,19 +835,35 @@ function renderShortageList() {
 
     const title = document.createElement('div');
     title.className   = 'shortage-day-title';
-    title.textContent = day + '曜日';
+    title.textContent = getDayTitle(day);
     section.appendChild(title);
 
+    const absentShifts = getEffectiveShiftsForDay(day).filter(s => s.absent);
+
     shortages.forEach(s => {
+      // この不足区間に重なる当欠者
+      const absentNames = absentShifts
+        .filter(a => a.startMin < s.endMin && a.endMin > s.startMin)
+        .map(a => state.employees.find(e => e.id === a.empId))
+        .filter(Boolean)
+        .map(getEmpLabel);
+
       const row = document.createElement('div');
       row.className = 'shortage-row shortage-row-tappable';
       row.innerHTML = `
-        <span class="shortage-time">${minToTime(s.startMin)}〜${minToTime(s.endMin)}</span>
+        <div class="shortage-row-left">
+          <span class="shortage-time">${minToTime(s.startMin)}〜${minToTime(s.endMin)}</span>
+          <span class="shortage-absent"></span>
+        </div>
         <div class="shortage-row-right">
           <span class="shortage-badge">あと${s.short}人</span>
           <span class="shortage-add-btn">＋</span>
         </div>
       `;
+      const absentEl = row.querySelector('.shortage-absent');
+      if (absentNames.length > 0) absentEl.textContent = `当欠: ${absentNames.join('、')}`;
+      else absentEl.remove();
+
       row.addEventListener('click', () => {
         openShiftModal(null, { day, startMin: s.startMin, endMin: s.endMin });
       });
@@ -656,34 +882,45 @@ function renderShortageList() {
 }
 
 // ========= 募集中リスト描画 =========
+// 仮（募集中）の時間範囲と、当欠のシフトを一覧表示する
 function renderTentativeList() {
   const list = document.getElementById('tentative-list');
   if (!list) return;
   list.innerHTML = '';
+  renderReqTargetLabel();
 
   // フィルタボタンのアクティブ状態を同期
   document.querySelectorAll('.tentative-filter-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.band === tentativeFilterId);
   });
 
+  const shifts = getTargetShifts();
+  if (!shifts) {
+    list.innerHTML = '<div class="empty-msg" style="padding-top:48px">この週はまだ作成されていません<br>（シフトタブの「この週を作成」から作成できます）</div>';
+    return;
+  }
+
   const band = SHORTAGE_BANDS.find(b => b.id === tentativeFilterId);
 
   let hasAny = false;
   DAYS.forEach(day => {
-    // 仮の時間範囲を持つシフトについて、バンドとの重複部分を計算する
+    // 仮の時間範囲 / 当欠の勤務について、バンドとの重複部分を計算する
     const entries = [];
-    state.shifts.forEach(s => {
+    shifts.forEach(s => {
       if (s.day !== day) return;
-      const range = getTentativeRange(s);
+      const range = s.absent
+        ? { start: s.startMin, end: s.endMin }
+        : getTentativeRange(s);
       if (!range) return;
+      const kind = s.absent ? 'absent' : 'tentative';
       if (band.id === 'all') {
-        entries.push({ shift: s, dispStart: range.start, dispEnd: range.end });
+        entries.push({ shift: s, kind, dispStart: range.start, dispEnd: range.end });
       } else {
         // バンド境界でクリップして重複部分だけを表示
         const clippedStart = Math.max(range.start, band.startMin);
         const clippedEnd   = Math.min(range.end, band.endMin);
         if (clippedEnd > clippedStart) {
-          entries.push({ shift: s, dispStart: clippedStart, dispEnd: clippedEnd });
+          entries.push({ shift: s, kind, dispStart: clippedStart, dispEnd: clippedEnd });
         }
       }
     });
@@ -697,21 +934,25 @@ function renderTentativeList() {
 
     const title = document.createElement('div');
     title.className   = 'shortage-day-title';
-    title.textContent = day + '曜日';
+    title.textContent = getDayTitle(day);
     section.appendChild(title);
 
-    entries.forEach(({ shift, dispStart, dispEnd }) => {
+    entries.forEach(({ shift, kind, dispStart, dispEnd }) => {
       const emp = state.employees.find(e => e.id === shift.empId);
       if (!emp) return;
+      const isAbsent = kind === 'absent';
       const row = document.createElement('div');
-      row.className = 'tentative-row';
+      row.className = 'tentative-row' + (isAbsent ? ' is-absent' : '');
       row.innerHTML = `
         <div class="tentative-info">
           <span class="shortage-time">${minToTime(dispStart)}〜${minToTime(dispEnd)}</span>
-          <span class="tentative-name">${emp.name}が仮で対応中</span>
+          <span class="tentative-name"></span>
         </div>
-        <span class="tentative-badge">募集中</span>
+        <span class="tentative-badge">${isAbsent ? '当欠' : '募集中'}</span>
       `;
+      row.querySelector('.tentative-name').textContent = isAbsent
+        ? `${getEmpLabel(emp)}が当欠`
+        : `${getEmpLabel(emp)}が仮で対応中`;
       row.addEventListener('click', () => openShiftModal(shift.id));
       section.appendChild(row);
     });
@@ -721,13 +962,32 @@ function renderTentativeList() {
 
   if (!hasAny) {
     const msg = band.id !== 'all'
-      ? `<div class="empty-msg" style="padding-top:48px">${band.label} の募集中なし</div>`
-      : '<div class="empty-msg" style="padding-top:48px">募集中のシフトなし</div>';
+      ? `<div class="empty-msg" style="padding-top:48px">${band.label} の募集中・当欠なし</div>`
+      : '<div class="empty-msg" style="padding-top:48px">募集中・当欠のシフトなし</div>';
     list.innerHTML = msg;
   }
 }
 
+// 一覧の曜日見出し（週表示は日付付き。例: 9/21(月)）
+function getDayTitle(day) {
+  if (isTemplateMode()) return day + '曜日';
+  return `${formatMD(getDateOfDay(state.currentWeek, day))}(${day})`;
+}
+
+// 必要人数タブ: 不足・募集中の対象を表示
+function renderReqTargetLabel() {
+  document.getElementById('req-target-label').textContent = `対象: ${getTargetLabel()}`;
+}
+
 // ========= 印刷バーチャート生成 =========
+const ABSENT_COLOR = '#9ca3af'; // 当欠バーの色（印刷・画像）
+
+// 印刷・画像の曜日見出し（週表示は日付付き。例: 月 9/21）
+function getPrintDayLabel(day) {
+  if (isTemplateMode()) return day;
+  return `${day} ${formatMD(getDateOfDay(state.currentWeek, day))}`;
+}
+
 // 基本帯の境界に対応するh値（3:00起点）: 3:00/6:00/9:00/13:00/17:00/22:00/翌3:00
 const BAND_H = new Set([0, 3, 6, 10, 14, 19, 24]);
 
@@ -746,7 +1006,7 @@ function buildPrintChart() {
   DAYS.forEach(day => {
     const hdr = document.createElement('div');
     hdr.className = 'print-day-hdr';
-    hdr.textContent = day;
+    hdr.textContent = getPrintDayLabel(day);
     headerRow.appendChild(hdr);
   });
   wrapper.appendChild(headerRow);
@@ -806,9 +1066,9 @@ function buildPrintChart() {
       bar.style.height     = `calc(${((shift.endMin - shift.startMin) / 60).toFixed(4)} * var(--print-hour-h))`;
       bar.style.left       = `${(lane * laneW * 100).toFixed(2)}%`;
       bar.style.width      = `${(laneW * 100 - 0.5).toFixed(2)}%`;
-      bar.style.background = emp.color;
+      bar.style.background = shift.absent ? ABSENT_COLOR : emp.color;
 
-      const label = emp.displayName || emp.name.slice(0, 2);
+      const label = (shift.absent ? '欠' : '') + (emp.displayName || emp.name.slice(0, 2));
 
       const startEl = document.createElement('div');
       startEl.className   = 'print-bar-start';
@@ -896,7 +1156,7 @@ function generateChartCanvas() {
     ctx.lineWidth = 0.5;
     ctx.strokeRect(x, 0, DAY_W, HDR_H);
     ctx.fillStyle = '#1f2937';
-    ctx.fillText(day, x + DAY_W / 2, HDR_H / 2);
+    ctx.fillText(getPrintDayLabel(day), x + DAY_W / 2, HDR_H / 2);
   });
 
   // コーナーセル区切り
@@ -970,7 +1230,7 @@ function generateChartCanvas() {
       const barY  = HDR_H + (shift.startMin / 60) * PX_PER_HOUR + 0.5;
       const barH  = Math.max(3, ((shift.endMin - shift.startMin) / 60) * PX_PER_HOUR - 1);
 
-      ctx.fillStyle = emp.color;
+      ctx.fillStyle = shift.absent ? ABSENT_COLOR : emp.color;
       canvasRoundRect(ctx, barX, barY, barW, barH, 2);
       ctx.fill();
       ctx.strokeStyle = 'rgba(0,0,0,0.45)';
@@ -986,7 +1246,7 @@ function generateChartCanvas() {
       canvasRoundRect(ctx, barX, barY, barW, barH, 2);
       ctx.clip();
 
-      const nameLabel  = emp.displayName || emp.name.slice(0, 2);
+      const nameLabel  = (shift.absent ? '欠' : '') + (emp.displayName || emp.name.slice(0, 2));
       const startLabel = minToTimeShort(shift.startMin);
       const endLabel   = minToTimeShort(shift.endMin);
 
@@ -1152,26 +1412,38 @@ function updateBreakBtnState() {
 
 // ========= モーダル: 勤務 =========
 function openShiftModal(shiftId = null, prefill = null) {
+  const shift = shiftId ? findTargetShift(shiftId) : null;
+  if (shiftId && !shift) return;
+  if (!shiftId && !getTargetShifts()) {
+    alert('この週はまだ作成されていません。先に「この週を作成」をしてください。');
+    return;
+  }
   state.editingShiftId = shiftId;
+
   const empSel  = document.getElementById('shift-emp-select');
   const startIn = document.getElementById('shift-start');
   const endIn   = document.getElementById('shift-end');
   const breakIn = document.getElementById('shift-break');
   const delBtn  = document.getElementById('btn-shift-delete');
 
-  empSel.innerHTML = state.employees.length === 0
+  const selectable = state.employees.filter(e => !e.deleted || (shift && e.id === shift.empId));
+  empSel.innerHTML = selectable.length === 0
     ? '<option value="">先に従業員を追加してください</option>'
     : '';
-  state.employees.forEach(emp => {
+  selectable.forEach(emp => {
     const opt = document.createElement('option');
     opt.value = emp.id;
-    opt.textContent = emp.name;
+    opt.textContent = getEmpLabel(emp);
     empSel.appendChild(opt);
   });
 
-  if (shiftId) {
-    const shift = state.shifts.find(s => s.id === shiftId);
-    document.getElementById('modal-shift-title').textContent = '勤務編集';
+  // 当欠は週データの既存勤務のみ
+  const absentGroup = document.getElementById('absent-group');
+  absentGroup.classList.toggle('hidden', !shift || isTemplateMode());
+  document.getElementById('shift-absent').checked = !!(shift && shift.absent);
+
+  if (shift) {
+    document.getElementById('modal-shift-title').textContent = `勤務編集 ${isTemplateMode() ? '（テンプレート）' : getDayTitle(shift.day)}`;
     empSel.value  = shift.empId;
     startIn.value = minToTimeInput(shift.startMin);
     endIn.value   = minToTimeInput(shift.endMin);
@@ -1187,7 +1459,7 @@ function openShiftModal(shiftId = null, prefill = null) {
     delBtn.classList.remove('hidden');
     renderDayToggles([shift.day], true);
   } else {
-    document.getElementById('modal-shift-title').textContent = '勤務追加';
+    document.getElementById('modal-shift-title').textContent = `勤務追加 ${isTemplateMode() ? '（テンプレート）' : '（' + formatWeekRange(state.currentWeek) + '）'}`;
     document.getElementById('tentative-start').value = '';
     document.getElementById('tentative-end').value   = '';
     if (prefill) {
@@ -1334,8 +1606,12 @@ function openEmpWeekModal(empId) {
   body.innerHTML = '';
   let totalMin = 0;
 
+  // 表示中の週（未作成ならテンプレート）
+  const srcShifts = getTargetShifts() || state.templateShifts;
+  const srcLabel  = getTargetShifts() ? getTargetLabel() : 'テンプレート';
+
   DAYS.forEach(day => {
-    const dayShifts = state.shifts
+    const dayShifts = srcShifts
       .filter(s => s.empId === empId && s.day === day)
       .sort((a, b) => a.startMin - b.startMin);
 
@@ -1344,7 +1620,7 @@ function openEmpWeekModal(empId) {
 
     const dayEl = document.createElement('div');
     dayEl.className   = 'emp-week-day';
-    dayEl.textContent = day;
+    dayEl.textContent = srcShifts === state.templateShifts ? day : getDayTitle(day);
     row.appendChild(dayEl);
 
     const shiftsEl = document.createElement('div');
@@ -1357,11 +1633,12 @@ function openEmpWeekModal(empId) {
       shiftsEl.appendChild(rest);
     } else {
       dayShifts.forEach(s => {
-        totalMin += Math.max(0, (s.endMin - s.startMin) - (s.breakMin || 0));
+        if (!s.absent) totalMin += Math.max(0, (s.endMin - s.startMin) - (s.breakMin || 0));
         const entry = document.createElement('div');
-        entry.className = 'emp-week-entry';
+        entry.className = 'emp-week-entry' + (s.absent ? ' is-absent' : '');
         const brk = s.breakMin > 0 ? `（休${s.breakMin}分）` : '';
-        entry.textContent = `${minToTime(s.startMin)}〜${minToTime(s.endMin)}${brk}`;
+        const abs = s.absent ? ' 当欠' : '';
+        entry.textContent = `${minToTime(s.startMin)}〜${minToTime(s.endMin)}${brk}${abs}`;
         shiftsEl.appendChild(entry);
       });
     }
@@ -1374,7 +1651,7 @@ function openEmpWeekModal(empId) {
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
   const totalLabel = totalMin === 0 ? '0時間' : (m > 0 ? `${h}時間${m}分` : `${h}時間`);
-  document.getElementById('emp-week-total').textContent = `週合計（実働）: ${totalLabel}`;
+  document.getElementById('emp-week-total').textContent = `${srcLabel} の合計（実働）: ${totalLabel}`;
 
   document.getElementById('modal-emp-week').classList.remove('hidden');
 }
@@ -1413,6 +1690,45 @@ function init() {
       state.currentDay = tab.dataset.day;
       renderShiftChart();
     });
+  });
+
+  // === 週切り替え ===
+  document.getElementById('btn-week-prev').addEventListener('click', () => {
+    setCurrentWeek(addDaysToKey(state.currentWeek, -7));
+  });
+  document.getElementById('btn-week-next').addEventListener('click', () => {
+    setCurrentWeek(addDaysToKey(state.currentWeek, 7));
+  });
+  const weekDateInput = document.getElementById('week-date-input');
+  weekDateInput.addEventListener('click', () => {
+    try { weekDateInput.showPicker(); } catch { /* 非対応ブラウザはネイティブ動作に任せる */ }
+  });
+  weekDateInput.addEventListener('change', () => {
+    if (!weekDateInput.value) return;
+    setCurrentWeek(getWeekKey(parseDateKey(weekDateInput.value)));
+  });
+  document.getElementById('btn-week-today').addEventListener('click', () => {
+    setCurrentWeek(getWeekKey(getBusinessDate(new Date())));
+  });
+  document.getElementById('btn-mode-toggle').addEventListener('click', () => {
+    state.mode = isTemplateMode() ? 'week' : 'template';
+    renderShiftChart();
+  });
+  document.getElementById('btn-create-week').addEventListener('click', () => {
+    if (getWeek(state.currentWeek)) return;
+    createWeekFromTemplate(state.currentWeek);
+    renderShiftChart();
+  });
+  document.getElementById('btn-recreate-week').addEventListener('click', () => {
+    if (!getWeek(state.currentWeek)) return;
+    const ok = confirm(
+      `${formatWeekRange(state.currentWeek)} のシフトを、テンプレートから作り直します。
+` +
+      'この週で行った編集・当欠の設定はすべて消えます。よろしいですか?'
+    );
+    if (!ok) return;
+    createWeekFromTemplate(state.currentWeek);
+    renderShiftChart();
   });
 
   // === 行高さトグル ===
@@ -1472,16 +1788,21 @@ function init() {
       }
     }
 
+    const target = getTargetShifts();
+    if (!target) return;
     if (state.editingShiftId) {
-      const s = state.shifts.find(x => x.id === state.editingShiftId);
+      const s = findTargetShift(state.editingShiftId);
+      if (!s) return;
       Object.assign(s, { empId, startMin, endMin, breakMin });
       s.tentativeStart = tentativeStart;
       s.tentativeEnd   = tentativeEnd;
       delete s.isTentative; // 旧フォーマットを新フォーマットに移行
+      if (!isTemplateMode()) s.absent = document.getElementById('shift-absent').checked;
     } else {
       const days = getSelectedDays();
       if (days.length === 0) return;
-      days.forEach(day => state.shifts.push({ id: uid(), empId, day, startMin, endMin, breakMin, tentativeStart, tentativeEnd }));
+      const absent = isTemplateMode() ? {} : { absent: false };
+      days.forEach(day => target.push({ id: uid(), empId, day, startMin, endMin, breakMin, tentativeStart, tentativeEnd, ...absent }));
     }
     saveShifts();
     closeShiftModal();
@@ -1492,7 +1813,9 @@ function init() {
 
   document.getElementById('btn-shift-delete').addEventListener('click', () => {
     if (!state.editingShiftId) return;
-    state.shifts = state.shifts.filter(s => s.id !== state.editingShiftId);
+    const target = getTargetShifts() || [];
+    const idx = target.findIndex(s => s.id === state.editingShiftId);
+    if (idx >= 0) target.splice(idx, 1);
     saveShifts();
     closeShiftModal();
     renderShiftChart();
@@ -1544,7 +1867,7 @@ function init() {
       emp.isManager   = isManager;
       // 店長フラグが外れたら仮の設定も解除
       if (!isManager) {
-        state.shifts.filter(s => s.empId === emp.id).forEach(s => {
+        getAllShiftLists().flat().filter(s => s.empId === emp.id).forEach(s => {
           s.isTentative    = false;
           s.tentativeStart = null;
           s.tentativeEnd   = null;
@@ -1566,9 +1889,22 @@ function init() {
   });
 
   document.getElementById('btn-emp-delete').addEventListener('click', () => {
-    if (!state.editingEmpId) return;
-    state.employees = state.employees.filter(e => e.id !== state.editingEmpId);
-    state.shifts    = state.shifts.filter(s => s.empId !== state.editingEmpId);
+    const empId = state.editingEmpId;
+    const emp   = state.employees.find(e => e.id === empId);
+    if (!emp) return;
+    if (!confirm(`${emp.name}さんを削除します。
+テンプレートと今週以降のシフトからも削除されます（過去の週のシフトは残ります）。`)) return;
+
+    const thisWeek = getThisWeekKey();
+    state.templateShifts = state.templateShifts.filter(s => s.empId !== empId);
+    let keepsPast = false;
+    Object.entries(state.weeks).forEach(([weekKey, w]) => {
+      if (weekKey >= thisWeek) w.shifts = w.shifts.filter(s => s.empId !== empId);
+      else if (w.shifts.some(s => s.empId === empId)) keepsPast = true;
+    });
+    // 過去の週に勤務が残る場合は、名前表示のため「削除済み」として従業員データを残す
+    if (keepsPast) emp.deleted = true;
+    else state.employees = state.employees.filter(e => e.id !== empId);
     saveEmployees();
     saveShifts();
     closeEmpModal();

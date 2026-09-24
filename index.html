@@ -42,6 +42,21 @@
           <button id="btn-add-shift" class="btn-primary">＋勤務追加</button>
         </div>
       </header>
+      <div id="week-bar">
+        <button id="btn-week-prev" class="week-nav-btn" aria-label="前の週">◀</button>
+        <div class="week-label-wrap">
+          <span id="week-label"></span>
+          <input type="date" id="week-date-input" aria-label="日付を指定して週を選ぶ" />
+        </div>
+        <button id="btn-week-next" class="week-nav-btn" aria-label="次の週">▶</button>
+        <button id="btn-week-today" class="btn-size-toggle">今週</button>
+        <button id="btn-mode-toggle" class="btn-size-toggle">テンプレート</button>
+      </div>
+      <div id="week-status" class="hidden">
+        <span id="week-status-text"></span>
+        <button id="btn-create-week" class="btn-primary btn-sm">この週を作成</button>
+        <button id="btn-recreate-week" class="btn-secondary btn-sm hidden">テンプレートから作り直す</button>
+      </div>
       <div id="day-tabs">
         <button class="day-tab active" data-day="月">月</button>
         <button class="day-tab" data-day="火">火</button>
@@ -71,6 +86,7 @@
     <div id="view-requirements" class="view">
       <header class="view-header">
         <h1>必要人数</h1>
+        <span id="req-target-label" class="target-label"></span>
       </header>
       <!-- サブタブ: 不足リストを先頭に -->
       <div id="req-subtab-bar">
@@ -213,6 +229,15 @@
           <input type="time" id="tentative-end" />
           <button type="button" id="btn-tentative-all" class="btn-secondary btn-sm">全範囲</button>
         </div>
+      </div>
+      <div class="form-group hidden" id="absent-group">
+        <label class="toggle-row">
+          <span>当欠 <span class="form-hint">（人数に数えず、不足リストに反映）</span></span>
+          <span class="toggle-switch">
+            <input type="checkbox" id="shift-absent" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </span>
+        </label>
       </div>
       <div class="modal-actions">
         <button id="btn-shift-save" class="btn-primary">保存</button>

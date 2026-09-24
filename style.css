@@ -144,6 +144,85 @@ html, body {
   cursor: pointer;
 }
 
+/* ========= 週バー（週切り替え・テンプレート切り替え） ========= */
+#week-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.week-nav-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.week-label-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+/* ラベル全体をタップで日付選択（input は透明で重ねる） */
+#week-date-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+#week-bar.template-mode { background: #fffbeb; }
+#week-bar.template-mode .week-nav-btn,
+#week-bar.template-mode #btn-week-today,
+#week-bar.template-mode #week-date-input { display: none; }
+#week-bar.template-mode .week-label-wrap { color: #b45309; cursor: default; }
+
+/* 週の作成状態（未作成: この週を作成 / 作成済み: テンプレートから作り直す） */
+#week-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--primary-light);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+#week-status.created {
+  padding: 3px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+#week-status.created .btn-sm {
+  font-size: 11px !important;
+  padding: 3px 8px !important;
+}
+
+#btn-add-shift:disabled { opacity: .4; cursor: default; }
+
 /* ========= 曜日タブ ========= */
 #day-tabs {
   display: flex;
@@ -169,6 +248,22 @@ html, body {
 .day-tab.active {
   color: var(--primary);
   border-bottom-color: var(--primary);
+}
+
+/* 週表示: 曜日の下に日付 */
+.day-tab-date {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.day-tab.today .day-tab-date {
+  color: #fff;
+  background: var(--primary);
+  border-radius: 8px;
+  padding: 0 4px;
+  display: inline-block;
 }
 
 /* ========= シフトチャート ========= */
@@ -279,6 +374,26 @@ html, body {
   text-shadow: 0 1px 1px rgba(0,0,0,.2);
   flex-shrink: 0;
   line-height: 1.2;
+}
+
+/* 当欠のバー（人数に数えない） */
+.shift-bar.is-absent {
+  filter: grayscale(1);
+  opacity: .55;
+}
+.shift-bar.is-absent .bar-emp-name { text-decoration: line-through; }
+
+.bar-absent {
+  position: relative;
+  z-index: 1;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0,0,0,.45);
+  border-radius: 3px;
+  padding: 0 2px;
+  margin: 1px 0;
+  flex-shrink: 0;
 }
 
 /* 不足オーバーレイ */
@@ -612,6 +727,24 @@ html, body {
   font-weight: 600;
 }
 
+.shortage-row-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shortage-absent {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* 必要人数タブの対象（週 / テンプレート） */
+.target-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .shortage-row-right {
   display: flex;
   align-items: center;
@@ -751,6 +884,11 @@ html, body {
   cursor: pointer;
 }
 .tentative-row:active { opacity: 0.7; }
+.tentative-row.is-absent { border-left-color: var(--danger); }
+.tentative-row.is-absent .tentative-badge {
+  color: var(--danger);
+  background: var(--danger-light);
+}
 
 .tentative-info {
   display: flex;
@@ -1253,6 +1391,10 @@ html, body {
   font-size: 14px;
   font-weight: 500;
   margin-bottom: 2px;
+}
+.emp-week-entry.is-absent {
+  color: var(--muted);
+  text-decoration: line-through;
 }
 
 .emp-week-rest {

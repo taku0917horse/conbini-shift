@@ -1,7 +1,7 @@
 // ========= クラウド同期（Firebase Auth + Firestore、手動同期） =========
 // app.js（通常スクリプト）の後に type="module" で読み込む。
 // Firebase SDK は動的 import で読むので、オフラインや未設定でも app.js 側は通常通り動く。
-// app.js のグローバル関数 getAllData / isValidAllData / applyAllData / rerenderCurrentView を使う。
+// app.js のグローバル関数 getAllData / normalizeAllData / applyAllData / rerenderCurrentView を使う。
 import { firebaseConfig } from './firebase-config.js';
 
 const FIREBASE_VER = '12.19.0';
@@ -158,12 +158,9 @@ async function loadFromCloud() {
       return;
     }
     const cloud = snap.data();
-    const data  = {
-      employees:    cloud.employees,
-      shifts:       cloud.shifts,
-      requirements: cloud.requirements,
-    };
-    if (!window.isValidAllData(data)) {
+    // 週データ導入前の形式（shifts）もテンプレートとして読み込める
+    const data  = window.normalizeAllData(cloud);
+    if (!data) {
       alert('クラウドのデータ構造が正しくありません。');
       return;
     }
