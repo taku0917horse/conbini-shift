@@ -34,8 +34,21 @@ const sync = {
 function el(id) { return document.getElementById(id); }
 
 function loadNum(key) {
-  const v = Number(localStorage.getItem(key));
-  return Number.isFinite(v) && v > 0 ? v : null;
+  try {
+    const v = Number(localStorage.getItem(key));
+    return Number.isFinite(v) && v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+// 書き込みに失敗しても例外で止めない（失敗は app.js の帯で知らせる）
+function saveLocal(key, str) {
+  try {
+    localStorage.setItem(key, str);
+  } catch (e) {
+    window.notifyStorageError(e);
+  }
 }
 
 function loadSyncState() {
@@ -47,7 +60,7 @@ function loadSyncState() {
 }
 
 function saveSyncState(st) {
-  localStorage.setItem(KEY_SYNC_STATE, JSON.stringify(st));
+  saveLocal(KEY_SYNC_STATE, JSON.stringify(st));
 }
 
 // ========= ローカルデータ → ドキュメント単位 =========
@@ -182,7 +195,7 @@ function tsToMs(ts) {
 }
 
 function markSynced() {
-  localStorage.setItem(KEY_LAST_SYNC, String(Date.now()));
+  saveLocal(KEY_LAST_SYNC, String(Date.now()));
   renderLastSync();
 }
 
@@ -347,7 +360,7 @@ async function initSync() {
   el('btn-cloud-load').addEventListener('click', loadFromCloud);
   // 共有・データタブを開くたびに「未保存の変更あり」を更新
   document.querySelector('.nav-btn[data-view="print"]').addEventListener('click', renderLastSync);
-  localStorage.removeItem('cloudBaseUpdatedAt'); // ②の単一ドキュメント時代のキー
+  try { localStorage.removeItem('cloudBaseUpdatedAt'); } catch { /* 保存できない環境 */ } // ②の単一ドキュメント時代のキー
   renderLastSync();
 
   if (!isConfigured()) {

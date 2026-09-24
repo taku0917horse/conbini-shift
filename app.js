@@ -154,8 +154,24 @@ const store = {
     try { return JSON.parse(localStorage.getItem(key)) ?? def; }
     catch { return def; }
   },
-  save(key, val) { localStorage.setItem(key, JSON.stringify(val)); },
+  // 書き込みに失敗しても例外で操作を止めない（容量不足・プライベートブラウズなど）。失敗は画面上部の帯で知らせる
+  save(key, val) {
+    try {
+      localStorage.setItem(key, JSON.stringify(val));
+      return true;
+    } catch (e) {
+      notifyStorageError(e);
+      return false;
+    }
+  },
 };
+
+// 端末への保存に失敗したことを知らせる（閉じるまで帯を出し続ける。sync.js からも呼ぶ）
+function notifyStorageError(e) {
+  console.error('端末への保存に失敗しました:', e);
+  const banner = document.getElementById('storage-error');
+  if (banner) banner.classList.remove('hidden');
+}
 
 // 行高さの設定を localStorage から復元
 hourSizeIdx = store.load('hourSizeIdx', 0);
@@ -2033,6 +2049,7 @@ function updateBreakBtnState() {
 }
 
 // ========= モーダル: 勤務 =========
+const LONG_SHIFT_MIN = 16 * 60; // これを超える勤務は保存前に確認する
 function openShiftModal(shiftId = null, prefill = null) {
   const shift = shiftId ? findTargetShift(shiftId) : null;
   if (shiftId && !shift) return;
@@ -2320,6 +2337,9 @@ function renderBandButtons() {
 // ========= 初期化 =========
 function init() {
   renderBandButtons();
+  document.getElementById('btn-storage-error-close').addEventListener('click', () => {
+    document.getElementById('storage-error').classList.add('hidden');
+  });
 
   // ナビ
   document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -2412,13 +2432,21 @@ function init() {
     const empId    = document.getElementById('shift-emp-select').value;
     const startStr = document.getElementById('shift-start').value;
     const endStr   = document.getElementById('shift-end').value;
-    if (!empId || !startStr || !endStr) return;
+    if (!empId) { alert('従業員を選んでください。'); return; }
+    if (!startStr || !endStr) { alert('開始時刻と終了時刻を入力してください。'); return; }
 
     const emp = state.employees.find(e => e.id === empId);
 
     const startMin = timeToMin(startStr);
     let endMin     = timeToMin(endStr);
-    if (endMin <= startMin) endMin += 1440;
+    if (endMin === startMin) {
+      alert('開始と終了が同じ時刻です。終了時刻を確認してください。');
+      return;
+    }
+    if (endMin < startMin) endMin += 1440;
+    // 長すぎる勤務は打ち間違いの可能性があるので確認する（例: 9:00〜8:00 は23時間）
+    if (endMin - startMin > LONG_SHIFT_MIN &&
+        !confirm(`${formatDuration(endMin - startMin)}の勤務になります。よろしいですか?`)) return;
     const breakMin = parseInt(document.getElementById('shift-break').value) || 0;
 
     // 仮の時間範囲（店長のみ）

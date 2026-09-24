@@ -14,6 +14,11 @@
   <style id="print-page-style">@page { size: A4 portrait; margin: 8mm; }</style>
 </head>
 <body>
+  <!-- 端末への保存に失敗したときの帯（app.js の notifyStorageError で表示） -->
+  <div id="storage-error" class="hidden" role="alert">
+    <span>この端末に保存できませんでした（空き容量不足など）。このままでは変更が失われるおそれがあります。「共有・データ」の「書き出し」でバックアップしてください。</span>
+    <button type="button" id="btn-storage-error-close" aria-label="閉じる">×</button>
+  </div>
   <div id="app">
     <!-- ナビゲーション -->
     <nav id="bottom-nav">
