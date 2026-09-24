@@ -130,6 +130,25 @@
         </div>
       </header>
       <div id="print-scroll-area">
+        <div id="cloud-section">
+          <div class="data-section-title">クラウド同期</div>
+          <div class="data-card">
+            <div class="data-card-body">
+              <div id="cloud-user" class="data-card-title">未ログイン</div>
+              <div id="cloud-status" class="data-card-desc">読み込み中…</div>
+            </div>
+            <button id="btn-login" class="btn-primary">ログイン</button>
+            <button id="btn-logout" class="btn-secondary hidden">ログアウト</button>
+          </div>
+          <div id="cloud-sync-card" class="data-card hidden">
+            <div class="data-card-body">
+              <div class="data-card-title">手動同期</div>
+              <div id="cloud-last-sync" class="data-card-desc">最終同期: まだ同期していません</div>
+            </div>
+            <button id="btn-cloud-load" class="btn-secondary">更新</button>
+            <button id="btn-cloud-save" class="btn-primary">クラウドに保存</button>
+          </div>
+        </div>
         <div id="print-preview"></div>
         <div id="data-section">
           <div class="data-section-title">データ管理（バックアップ・共有）</div>
@@ -319,6 +338,7 @@
   <div id="print-area"></div>
 
   <script src="app.js"></script>
+  <script type="module" src="sync.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js');

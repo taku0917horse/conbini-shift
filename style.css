@@ -788,6 +788,14 @@ html, body {
   border-top: 8px solid var(--bg);
 }
 
+#cloud-section {
+  padding: 16px 16px 6px;
+  border-bottom: 8px solid var(--bg);
+}
+
+#cloud-section button { white-space: nowrap; }
+#cloud-section button:disabled { opacity: .4; }
+
 .data-section-title {
   font-size: 12px;
   font-weight: 700;
