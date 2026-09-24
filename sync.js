@@ -16,7 +16,10 @@ const CDN = `https://www.gstatic.com/firebasejs/${FIREBASE_VER}`;
 const STORE_PATH = ['stores', 'main'];
 
 // localStorage キー
-const KEY_LAST_SYNC  = 'lastSyncAt';  // 最後に保存 or 更新した時刻（ms）
+const KEY_LAST_LOAD     = 'lastLoadAt';      // 最後にクラウドから読み込んだ時刻（ms）
+const KEY_LAST_SAVE     = 'lastSaveAt';      // 最後にクラウドへ保存した時刻（ms）
+const KEY_LOAD_CLOUD_MS = 'lastLoadCloudMs'; // 最後に読み込んだデータの updatedAt の最大値（新しい変更を探す起点）
+const CHECK_INTERVAL_MS = 60 * 1000;         // 共有・データタブを開いたときのクラウド確認の間隔
 const KEY_SYNC_STATE = 'syncState';   // ドキュメントごとの同期状態（下記）
 // syncState: { template: { hash, base }, weeks: { [週]: { hash, base } } }
 //   hash … 最後に同期した時点の内容のハッシュ（今の内容と違えば未保存の変更あり）
@@ -29,6 +32,8 @@ const sync = {
   fs: null,
   user: null,
   busy: false,
+  cloudNewer: [],    // クラウドにある、最後に読み込んだ後の他の変更 [{ doc, ms, by }]
+  lastCheckAt: 0,
 };
 
 function el(id) { return document.getElementById(id); }
@@ -152,12 +157,33 @@ function formatUpdatedTime(ms) {
   return `${d.getMonth() + 1}月${d.getDate()}日${d.getHours()}時${pad2(d.getMinutes())}分`;
 }
 
+// 読み込み・保存の時刻と、未保存の変更 / クラウドの新しい変更を表示
 function renderLastSync() {
-  const last  = loadNum(KEY_LAST_SYNC);
-  const dirty = getDirtyDocs().length > 0;
+  const lastLoad = loadNum(KEY_LAST_LOAD);
+  const lastSave = loadNum(KEY_LAST_SAVE);
   el('cloud-last-sync').textContent =
-    (last ? `最終同期: ${formatSyncTime(last)}` : '最終同期: まだ同期していません') +
-    (dirty ? '（未保存の変更あり）' : '');
+    `読み込み: ${lastLoad ? formatSyncTime(lastLoad) : 'まだ'} ・ 保存: ${lastSave ? formatSyncTime(lastSave) : 'まだ'}`;
+
+  const status = el('cloud-sync-status');
+  status.innerHTML = '';
+  const line = (className, text) => {
+    const div = document.createElement('div');
+    div.className   = className;
+    div.textContent = text;
+    status.appendChild(div);
+  };
+  if (getDirtyDocs().length > 0) line('sync-dirty', 'この端末に、クラウドへ保存していない変更があります');
+  const newer = sync.cloudNewer;
+  if (newer.length > 0) {
+    const latest = newer.reduce((a, b) => (b.ms > a.ms ? b : a));
+    const who    = latest.by?.name || latest.by?.email || '（不明）';
+    const more   = newer.length > 1 ? ` ほか${newer.length - 1}件` : '';
+    line('sync-newer',
+      `クラウドに新しい変更があります（${who}さん ${formatUpdatedTime(latest.ms)}・${docLabel(latest.doc)}${more}）。「更新」で読み込めます`);
+  }
+  // 新しい変更があるときは「更新」を目立たせる
+  el('btn-cloud-load').classList.toggle('btn-primary', newer.length > 0);
+  el('btn-cloud-load').classList.toggle('btn-secondary', newer.length === 0);
 }
 
 function renderAuthUI() {
@@ -194,9 +220,36 @@ function tsToMs(ts) {
   return ts && typeof ts.toMillis === 'function' ? ts.toMillis() : null;
 }
 
-function markSynced() {
-  saveLocal(KEY_LAST_SYNC, String(Date.now()));
+// クラウドに、最後に読み込んだ後の他の変更があるか確かめる（週は updatedAt が新しいものだけ取得）
+async function checkCloudUpdates() {
+  if (!sync.user || !sync.fs) return;
+  const { doc, getDoc, getDocs, collection, query, where, Timestamp } = sync.fs;
+  sync.lastCheckAt = Date.now();
+  try {
+    const since = loadNum(KEY_LOAD_CLOUD_MS) || 0;
+    const [tSnap, wSnap] = await Promise.all([
+      getDoc(doc(sync.db, ...STORE_PATH)),
+      getDocs(query(collection(sync.db, ...STORE_PATH, 'weeks'), where('updatedAt', '>', Timestamp.fromMillis(since)))),
+    ]);
+    const st = loadSyncState();
+    const newer = [];
+    const add = (d, data) => {
+      const ms = tsToMs(data.updatedAt);
+      if (ms && ms > (getEntry(st, d)?.base ?? 0)) newer.push({ doc: d, ms, by: data.updatedBy });
+    };
+    if (tSnap.exists()) add({ kind: 'template', id: 'template' }, tSnap.data());
+    wSnap.forEach(snap => add({ kind: 'week', id: snap.id }, snap.data()));
+    sync.cloudNewer = newer;
+  } catch (e) {
+    console.warn('クラウドの確認に失敗しました:', e); // 表示は変えない（保存・更新のときに改めてエラーを出す）
+  }
   renderLastSync();
+}
+
+// 共有・データタブを開いたとき（間隔を空けてクラウドも確認）
+function onDataTabOpen() {
+  renderLastSync();
+  if (Date.now() - sync.lastCheckAt > CHECK_INTERVAL_MS) checkCloudUpdates();
 }
 
 // ========= ログイン =========
@@ -269,7 +322,8 @@ async function saveToCloud() {
     const st2 = loadSyncState();
     dirty.forEach((d, i) => setEntry(st2, d, { hash: d.hash, base: tsToMs(after[i].get('updatedAt')) }));
     saveSyncState(st2);
-    markSynced();
+    saveLocal(KEY_LAST_SAVE, String(Date.now()));
+    await checkCloudUpdates(); // 自分が保存していない部分に、他の人の新しい変更がないか
     alert(`クラウドに保存しました。\n（${dirty.map(docLabel).join('、')}）`);
   } catch (e) {
     alert(`保存に失敗しました。\n${describeError(e)}`);
@@ -342,7 +396,11 @@ async function loadFromCloud() {
       }
     });
     saveSyncState(st);
-    markSynced();
+    const loadedMax = Math.max(templateMs || 0, ...Object.values(weekBases).map(ms => ms || 0));
+    saveLocal(KEY_LAST_LOAD, String(Date.now()));
+    saveLocal(KEY_LOAD_CLOUD_MS, String(loadedMax));
+    sync.cloudNewer = [];
+    renderLastSync();
     window.rerenderCurrentView();
     alert('クラウドのデータを読み込みました');
   } catch (e) {
@@ -358,9 +416,10 @@ async function initSync() {
   el('btn-logout').addEventListener('click', logout);
   el('btn-cloud-save').addEventListener('click', saveToCloud);
   el('btn-cloud-load').addEventListener('click', loadFromCloud);
-  // 共有・データタブを開くたびに「未保存の変更あり」を更新
-  document.querySelector('.nav-btn[data-view="print"]').addEventListener('click', renderLastSync);
-  try { localStorage.removeItem('cloudBaseUpdatedAt'); } catch { /* 保存できない環境 */ } // ②の単一ドキュメント時代のキー
+  // 共有・データタブを開くたびに「未保存の変更」を更新し、クラウドの新しい変更も確かめる
+  document.querySelector('.nav-btn[data-view="print"]').addEventListener('click', onDataTabOpen);
+  // 以前のキー（②の単一ドキュメント時代 / 読み込みと保存を区別していなかった最終同期時刻）
+  try { ['cloudBaseUpdatedAt', 'lastSyncAt'].forEach(k => localStorage.removeItem(k)); } catch { /* 保存できない環境 */ }
   renderLastSync();
 
   if (!isConfigured()) {
@@ -390,7 +449,9 @@ async function initSync() {
   });
   sync.authMod.onAuthStateChanged(sync.auth, user => {
     sync.user = user;
+    sync.cloudNewer = [];
     renderAuthUI();
+    if (user) checkCloudUpdates();
   });
 }
 

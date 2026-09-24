@@ -961,6 +961,16 @@ html, body {
 }
 
 #cloud-section button { white-space: nowrap; }
+
+/* 手動同期: 状態の文章が長くなるので、ボタンは文章の下に並べる */
+#cloud-sync-card { flex-wrap: wrap; }
+#cloud-sync-card .data-card-body { flex-basis: 100%; }
+#cloud-sync-card button { flex: 1; }
+
+/* 未保存の変更 / クラウドの新しい変更 */
+.cloud-sync-status { font-size: 12px; line-height: 1.4; margin-top: 4px; }
+.cloud-sync-status .sync-dirty { color: #b45309; font-weight: 600; }
+.cloud-sync-status .sync-newer { color: var(--primary); font-weight: 600; }
 #cloud-section button:disabled { opacity: .4; }
 
 .data-section-title {
