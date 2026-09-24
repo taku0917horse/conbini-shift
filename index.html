@@ -171,6 +171,13 @@
           <div class="data-section-title">印刷</div>
           <div class="print-card">
             <div class="print-row">
+              <span class="print-row-label">種類</span>
+              <div id="print-kind-seg" class="seg seg-wrap">
+                <button type="button" data-kind="shift">時間帯別シフト表</button>
+                <button type="button" data-kind="help">ヘルプ募集一覧</button>
+              </div>
+            </div>
+            <div class="print-row">
               <span class="print-row-label">開始週</span>
               <div class="print-week">
                 <button id="print-week-prev" class="week-nav-btn" aria-label="前の週">◀</button>
@@ -199,7 +206,7 @@
                 <div id="print-preset-seg" class="seg seg-wrap"></div>
               </div>
             </div>
-            <div class="print-row">
+            <div class="print-row" id="print-orient-row">
               <span class="print-row-label">時間軸</span>
               <div id="print-orient-seg" class="seg">
                 <button type="button" data-orient="portrait">縦（A4縦）</button>

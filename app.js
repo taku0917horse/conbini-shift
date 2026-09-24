@@ -1026,6 +1026,7 @@ const printSettings = (() => {
   const saved = {
     startMin: store.load('printStartMin', 0),
     endMin:   store.load('printEndMin', 1440),
+    kind:     store.load('printKind', 'shift'),     // 'shift' = 時間帯別シフト表, 'help' = ヘルプ募集一覧
     weeks:    store.load('printWeeks', 1),
     orient:   store.load('printOrient', 'portrait'), // 'portrait' = 時間軸 縦 / A4縦, 'landscape' = 時間軸 横 / A4横
   };
@@ -1033,6 +1034,7 @@ const printSettings = (() => {
     && saved.startMin >= 0 && saved.endMin <= MAX_MIN && saved.endMin - saved.startMin >= 15;
   if (!validRange) { saved.startMin = 0; saved.endMin = 1440; }
   if (![1, 2, 3, 4].includes(saved.weeks)) saved.weeks = 1;
+  if (!['shift', 'help'].includes(saved.kind)) saved.kind = 'shift';
   if (!['portrait', 'landscape'].includes(saved.orient)) saved.orient = 'portrait';
   return saved;
 })();
@@ -1040,6 +1042,7 @@ const printSettings = (() => {
 function savePrintSettings() {
   store.save('printStartMin', printSettings.startMin);
   store.save('printEndMin',   printSettings.endMin);
+  store.save('printKind',     printSettings.kind);
   store.save('printWeeks',    printSettings.weeks);
   store.save('printOrient',   printSettings.orient);
 }
@@ -1283,55 +1286,259 @@ function buildPrintPages() {
   });
   if (cur.length) groups.push(cur);
 
-  const first = weekKeys[0], last = weekKeys[weekKeys.length - 1];
-  const target = isTemplateMode()
-    ? '（テンプレート）'
-    : `${formatWeekRange(first).split('〜')[0]}〜${formatWeekRange(last).split('〜')[1]}`;
+  const target = isTemplateMode() ? '（テンプレート）' : formatWeeksRange(weekKeys);
 
   return groups.map((group, pi) => {
     const sheet = makeEl('div', `sheet sheet-${orient}`);
     sheet.style.width  = `${page.w}mm`;
     sheet.style.height = `${page.h}mm`;
 
-    const title = makeEl('div', 'sheet-title');
-    title.style.height = `${PAGE_TITLE_MM}mm`;
-    title.appendChild(makeEl('span', 'sheet-title-main', `シフト表　${target}`));
-    const right = makeEl('span', 'sheet-title-band', getPrintRangeTitle());
-    if (groups.length > 1) right.appendChild(makeEl('span', 'sheet-page', `${pi + 1} / ${groups.length}`));
-    title.appendChild(right);
-    sheet.appendChild(title);
+    sheet.appendChild(buildSheetTitle(`シフト表　${target}`, pi, groups.length));
 
     const body = makeEl('div', 'sheet-body');
     body.style.gap = `${BLOCK_GAP_MM}mm`;
     group.forEach(b => body.appendChild(b.el));
     sheet.appendChild(body);
 
-    const legend = makeEl('div', 'sheet-legend');
+    const legend = buildLegend(['bar', 'short', 'empty', 'tent', 'absent']);
     legend.style.height = `${PAGE_LEGEND_MM}mm`;
-    // 用紙と同じ見た目の見本（swatch の中身は用紙と同じ文字）
-    [
-      ['lg-bar',    '名前',  '勤務'],
-      ['lg-short',  '不足',  '人数不足'],
-      ['lg-empty',  '0人',   '誰もいない'],
-      ['lg-tent',   '',      '募集中（仮対応）'],
-      ['lg-absent', '当欠',  '当欠'],
-    ].forEach(([cls, inner, text]) => {
-      const item = makeEl('span', 'lg-item');
-      item.appendChild(makeEl('span', `lg-swatch ${cls}`, inner));
-      item.appendChild(document.createTextNode(text));
-      legend.appendChild(item);
-    });
     sheet.appendChild(legend);
+    return sheet;
+  });
+}
+
+// 凡例（用紙と同じ見た目の見本。swatch の中身は用紙と同じ文字）
+const LEGEND_ITEMS = {
+  bar:    ['lg-bar',    '名前', '勤務'],
+  short:  ['lg-short',  '不足', '人数不足'],
+  empty:  ['lg-empty',  '0人',  '誰もいない'],
+  tent:   ['lg-tent',   '',     '募集中（仮対応）'],
+  absent: ['lg-absent', '当欠', '当欠'],
+};
+
+function buildLegend(keys) {
+  const legend = makeEl('div', 'sheet-legend');
+  keys.forEach(key => {
+    const [cls, inner, text] = LEGEND_ITEMS[key];
+    const item = makeEl('span', 'lg-item');
+    item.appendChild(makeEl('span', `lg-swatch ${cls}`, inner));
+    item.appendChild(document.createTextNode(text));
+    legend.appendChild(item);
+  });
+  return legend;
+}
+
+// 例: 9/21(月)〜10/4(日)
+function formatWeeksRange(weekKeys) {
+  const first = weekKeys[0], last = weekKeys[weekKeys.length - 1];
+  return `${formatWeekRange(first).split('〜')[0]}〜${formatWeekRange(last).split('〜')[1]}`;
+}
+
+// 用紙のタイトル行
+function buildSheetTitle(mainText, pageIndex, pageCount) {
+  const title = makeEl('div', 'sheet-title');
+  title.style.height = `${PAGE_TITLE_MM}mm`;
+  title.appendChild(makeEl('span', 'sheet-title-main', mainText));
+  const right = makeEl('span', 'sheet-title-band', getPrintRangeTitle());
+  if (pageCount > 1) right.appendChild(makeEl('span', 'sheet-page', `${pageIndex + 1} / ${pageCount}`));
+  title.appendChild(right);
+  return title;
+}
+
+// ========= 印刷（ヘルプ募集一覧） =========
+const HELP_LINE_MM   = 9;    // お名前欄 1段の高さ
+const HELP_HEAD_MM   = 8;    // 表の見出し行
+const HELP_FOOTER_MM = 14;   // 注意書き + 凡例
+const HELP_COLS      = '24mm 32mm 24mm 1fr 62mm'; // 日付 / 時間帯 / 不足 / 備考 / お名前
+
+// 指定週の募集枠を集める → [{ date, startMin, endMin, count, kind: 'short'|'empty'|'tent', absentNames, note }]
+// 各日は 3:00〜翌3:00 で数える（翌3:00以降は翌日の分として出るので重複しない）。
+// 印刷の時間帯（開始〜終了）は時刻の範囲として当てはめる（翌日にまたがる場合は各日の早朝側も対象）
+function collectHelpSlots(weekKey) {
+  const { startMin, endMin } = printSettings;
+  const windows = [[startMin, Math.min(endMin, 1440)]];
+  if (endMin > 1440) windows.push([0, endMin - 1440]);
+  const clip = (s, e) => windows
+    .map(([ws, we]) => [Math.max(s, ws), Math.min(e, we)])
+    .filter(([a, b]) => b > a);
+  const empName = id => {
+    const emp = state.employees.find(e => e.id === id);
+    return emp ? getEmpLabel(emp) : '';
+  };
+
+  const slots = [];
+  DAYS.forEach(day => {
+    const date   = getDateOfDay(weekKey, day);
+    const shifts = getEffectiveShiftsForDay(day, weekKey);
+
+    // 人数不足（不足人数・0人かどうかが変わるところで区切る。当日 3:00〜翌3:00 の分）
+    const segs = getShortageOverlays(day, weekKey)
+      .filter(ov => ov.startMin < 1440)
+      .map(ov => ({ ...ov, endMin: Math.min(ov.endMin, 1440) }));
+    segs.forEach(seg => clip(seg.startMin, seg.endMin).forEach(([s, e]) => {
+      const absentNames = shifts
+        .filter(a => a.absent && a.startMin < e && a.endMin > s)
+        .map(a => empName(a.empId))
+        .filter(Boolean);
+      slots.push({ date, startMin: s, endMin: e, count: seg.short, kind: seg.isEmpty ? 'empty' : 'short', absentNames, note: '' });
+    }));
+
+    // 仮（募集中）: 自日の勤務のみ（翌3:00以降の部分は翌日の枠として出す）
+    shifts.forEach(sh => {
+      if (sh.absent || sh.fromPrevDay) return;
+      const range = getTentativeRange(sh);
+      if (!range) return;
+      const note = `${empName(sh.empId)}が仮対応中`;
+      const parts = [[date, range.start, Math.min(range.end, 1440)]];
+      if (range.end > 1440) {
+        const next = new Date(date);
+        next.setDate(next.getDate() + 1);
+        parts.push([next, Math.max(range.start - 1440, 0), range.end - 1440]);
+      }
+      parts.forEach(([d, ps, pe]) => clip(ps, pe).forEach(([s, e]) => {
+        slots.push({ date: d, startMin: s, endMin: e, count: 1, kind: 'tent', absentNames: [], note });
+      }));
+    });
+  });
+  return slots;
+}
+
+function buildHelpPages() {
+  const page     = PAGE_MM.portrait;
+  const weekKeys = getPrintWeekKeys();
+  const created  = weekKeys.filter(k => getTargetShifts(k));
+  const missing  = weekKeys.filter(k => !getTargetShifts(k));
+
+  const slots = created.flatMap(collectHelpSlots)
+    .sort((a, b) => a.date - b.date || a.startMin - b.startMin);
+
+  // 行の高さ = 不足人数分のお名前欄
+  const rows = slots.map(slot => ({ slot, heightMm: Math.max(1, slot.count) * HELP_LINE_MM }));
+  const avail = page.h - PAGE_TITLE_MM - HELP_HEAD_MM - HELP_FOOTER_MM;
+  const groups = [];
+  let cur = [], used = 0;
+  rows.forEach(r => {
+    if (cur.length && used + r.heightMm > avail) {
+      groups.push(cur);
+      cur = []; used = 0;
+    }
+    cur.push(r);
+    used += r.heightMm;
+  });
+  if (cur.length) groups.push(cur);
+
+  const titleText = `ヘルプ募集　${formatWeeksRange(weekKeys)}`;
+
+  return groups.map((group, pi) => {
+    const sheet = makeEl('div', 'sheet sheet-portrait help-sheet');
+    sheet.style.width  = `${page.w}mm`;
+    sheet.style.height = `${page.h}mm`;
+    sheet.appendChild(buildSheetTitle(titleText, pi, groups.length));
+
+    const table = makeEl('div', 'help-table');
+    table.style.gridTemplateColumns = HELP_COLS;
+    ['日付', '時間帯', '不足', '備考', 'お名前（入れる方は記入）'].forEach(h => {
+      const th = makeEl('div', 'help-th', h);
+      th.style.height = `${HELP_HEAD_MM}mm`;
+      table.appendChild(th);
+    });
+
+    let prevDateKey = null, prevWeekKey = null;
+    group.forEach(({ slot, heightMm }, ri) => {
+      const dateKey = toDateKey(slot.date);
+      const wd  = DAYS[(slot.date.getDay() + 6) % 7];
+      const weekKey = getWeekKey(slot.date);
+      const newDay  = dateKey !== prevDateKey;
+      const newWeek = ri > 0 && weekKey !== prevWeekKey;
+      prevDateKey = dateKey;
+      prevWeekKey = weekKey;
+      const rowCls = 'help-td' + (newDay && ri > 0 ? ' day-start' : '') + (newWeek ? ' week-start' : '');
+      const cell = (extra, child) => {
+        const td = makeEl('div', rowCls + (extra ? ' ' + extra : ''));
+        td.style.height = `${heightMm}mm`;
+        if (child) td.appendChild(child);
+        table.appendChild(td);
+        return td;
+      };
+
+      // 日付（同じ日の2行目以降は空欄。土日は太字）
+      const dateEl = makeEl('span', 'help-date' + (wd === '土' || wd === '日' ? ' weekend' : ''),
+        newDay ? `${formatMD(slot.date)}(${wd})` : '');
+      cell('col-date', dateEl);
+      cell('col-time', makeEl('span', 'help-time', `${minToTimeShort(slot.startMin)}〜${minToTimeShort(slot.endMin)}`));
+
+      // 不足（白黒で区別できるラベル + 人数）
+      const countEl = makeEl('span', 'help-count');
+      const badge = slot.kind === 'tent'
+        ? makeEl('span', 'help-badge badge-tent')
+        : slot.kind === 'empty'
+          ? makeEl('span', 'help-badge badge-empty', '0人')
+          : makeEl('span', 'help-badge badge-short', '不足');
+      // 斜線の上でも読めるよう、募集中の文字は白い下地に載せる
+      if (slot.kind === 'tent') badge.appendChild(makeEl('span', 'badge-tent-text', '募集中'));
+      countEl.appendChild(badge);
+      countEl.appendChild(makeEl('span', 'help-count-num', `${slot.count}人`));
+      cell('col-count', countEl);
+
+      // 備考（当欠は取り消し線 + 「当欠」、仮対応は文字）
+      const noteEl = makeEl('span', 'help-note');
+      if (slot.absentNames.length > 0) {
+        noteEl.appendChild(makeEl('span', 'help-absent-badge', '当欠'));
+        slot.absentNames.forEach(n => noteEl.appendChild(makeEl('s', 'help-absent-name', n)));
+      }
+      if (slot.note) noteEl.appendChild(makeEl('span', null, slot.note));
+      cell('col-note', noteEl);
+
+      // お名前（不足人数分の記入欄）
+      const names = makeEl('div', 'help-names');
+      for (let i = 0; i < Math.max(1, slot.count); i++) {
+        const line = makeEl('div', 'help-name-line');
+        line.style.height = `${HELP_LINE_MM}mm`;
+        if (slot.count > 1) line.appendChild(makeEl('span', 'help-name-no', `${i + 1}`));
+        names.appendChild(line);
+      }
+      cell('col-name', names);
+    });
+    sheet.appendChild(table);
+
+    const footer = makeEl('div', 'help-footer');
+    footer.style.height = `${HELP_FOOTER_MM}mm`;
+    const notes = makeEl('div', 'help-footer-notes');
+    notes.appendChild(makeEl('div', 'help-footer-main', '入れる方は「お名前」欄に名前を書いてください。'));
+    if (missing.length > 0) {
+      notes.appendChild(makeEl('div', 'help-footer-sub',
+        `※ ${missing.map(formatWeekRange).join('、')} は未作成のため含まれていません`));
+    }
+    footer.appendChild(notes);
+    footer.appendChild(buildLegend(['short', 'empty', 'tent', 'absent']));
+    sheet.appendChild(footer);
     return sheet;
   });
 }
 
 // 印刷できない状態のメッセージ（null なら印刷可）
 function getPrintBlocker() {
-  if (getPrintWeekKeys().every(k => !getTargetShifts(k))) {
+  const isHelp = printSettings.kind === 'help';
+  if (isHelp && isTemplateMode()) {
+    return 'ヘルプ募集一覧は週ごとに作ります。シフトタブで「週表示に戻る」を押してください。';
+  }
+  const weekKeys = getPrintWeekKeys();
+  if (weekKeys.every(k => !getTargetShifts(k))) {
     return '選んだ週はまだ作成されていません。シフトタブの「この週を作成」から作成してください。';
   }
+  if (isHelp && weekKeys.filter(k => getTargetShifts(k)).every(k => collectHelpSlots(k).length === 0)) {
+    return '選んだ週・時間帯に募集枠（人数不足・募集中）はありません。';
+  }
   return null;
+}
+
+// 印刷の種類に応じた用紙の向き（募集一覧は A4 縦固定）
+function getPrintOrient() {
+  return printSettings.kind === 'help' ? 'portrait' : printSettings.orient;
+}
+
+function buildPrintPagesForKind() {
+  return printSettings.kind === 'help' ? buildHelpPages() : buildPrintPages();
 }
 
 // 印刷カードの表示を現在の設定に同期
@@ -1343,6 +1550,10 @@ function renderPrintControls() {
   document.getElementById('print-week-prev').classList.toggle('hidden', tmpl);
   document.getElementById('print-week-next').classList.toggle('hidden', tmpl);
   document.getElementById('print-weeks-row').classList.toggle('hidden', tmpl);
+  document.getElementById('print-orient-row').classList.toggle('hidden', printSettings.kind === 'help');
+  document.querySelectorAll('#print-kind-seg button').forEach(b => {
+    b.classList.toggle('active', b.dataset.kind === printSettings.kind);
+  });
 
   const { startMin, endMin } = printSettings;
   document.getElementById('print-start').value = minToTimeInput(startMin);
@@ -1373,7 +1584,7 @@ function renderPrintPreview() {
     return;
   }
   // 用紙を実寸（mm）で作り、画面幅に合わせて縮小表示
-  const pages = buildPrintPages();
+  const pages = buildPrintPagesForKind();
   pages.forEach((sheet, i) => {
     if (pages.length > 1) preview.appendChild(makeEl('div', 'sheet-caption', `${i + 1} / ${pages.length} ページ`));
     const frame = makeEl('div', 'sheet-frame');
@@ -1391,7 +1602,7 @@ function fitPrintPreview() {
   const avail  = parent.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   if (avail <= 0) return; // 非表示中
   const mm2px = 96 / 25.4;
-  const { w, h } = PAGE_MM[printSettings.orient];
+  const { w, h } = PAGE_MM[getPrintOrient()];
   const scale = Math.min(1, avail / (w * mm2px));
   frames.forEach(frame => {
     frame.firstChild.style.transform = `scale(${scale})`;
@@ -1404,10 +1615,10 @@ function printSheet() {
   if (getPrintBlocker()) return;
   const area = document.getElementById('print-area');
   area.innerHTML = '';
-  buildPrintPages().forEach(sheet => area.appendChild(sheet));
+  buildPrintPagesForKind().forEach(sheet => area.appendChild(sheet));
   // 用紙の向きを設定に合わせる
   document.getElementById('print-page-style').textContent =
-    `@page { size: A4 ${printSettings.orient}; margin: 8mm; }`;
+    `@page { size: A4 ${getPrintOrient()}; margin: 8mm; }`;
   window.print();
 }
 
@@ -1439,6 +1650,13 @@ function initPrintControls() {
   document.querySelectorAll('#print-weeks-seg button').forEach(btn => {
     btn.addEventListener('click', () => {
       printSettings.weeks = Number(btn.dataset.weeks);
+      savePrintSettings();
+      renderPrintPreview();
+    });
+  });
+  document.querySelectorAll('#print-kind-seg button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      printSettings.kind = btn.dataset.kind;
       savePrintSettings();
       renderPrintPreview();
     });
