@@ -1,5 +1,5 @@
-const CACHE = 'conbini-shift-v3';
-const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json'];
+const CACHE = 'conbini-shift-v5';
+const ASSETS = ['./', './index.html', './style.css', './app.js', './sync.js', './firebase-config.js', './manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
@@ -16,6 +16,9 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // 自サイトの GET だけキャッシュ対象。Firebase（Auth / Firestore / CDN）の通信には介入しない
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
   e.respondWith(
     caches.match(e.request).then(r => r || fetch(e.request))
   );

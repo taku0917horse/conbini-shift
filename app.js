@@ -127,6 +127,36 @@ function getTentativeRange(shift) {
   return null;
 }
 
+// ========= 全データの取り出し・反映（エクスポート／インポート／クラウド同期で共用） =========
+function getAllData() {
+  return {
+    employees:    state.employees,
+    shifts:       state.shifts,
+    requirements: state.requirements,
+  };
+}
+
+function isValidAllData(d) {
+  return !!d && Array.isArray(d.employees) && Array.isArray(d.shifts) && Array.isArray(d.requirements);
+}
+
+// dataDate: 反映するデータの日時（ISO文字列）。saveXxx 経由だと touchDataDate が走るため直接書き込む
+function applyAllData(d, dataDate) {
+  state.employees    = d.employees;
+  state.shifts       = d.shifts;
+  state.requirements = d.requirements;
+  store.save('employees',    d.employees);
+  store.save('shifts',       d.shifts);
+  store.save('requirements', d.requirements);
+  store.save('currentDataDate', dataDate ?? new Date().toISOString());
+}
+
+// 表示中のビューを再描画
+function rerenderCurrentView() {
+  const active = document.querySelector('.nav-btn.active');
+  switchView(active ? active.dataset.view : 'shift');
+}
+
 // ========= 日時フォーマット =========
 function formatDatetime(d) {
   const p = n => String(n).padStart(2, '0');
@@ -139,11 +169,7 @@ function exportData() {
   const payload = {
     version:    1,
     exportedAt: now.toISOString(),
-    data: {
-      employees:    state.employees,
-      shifts:       state.shifts,
-      requirements: state.requirements,
-    },
+    data:       getAllData(),
   };
 
   store.save('currentDataDate', now.toISOString());
@@ -184,7 +210,7 @@ function handleImport(file) {
       return;
     }
     const d = payload.data;
-    if (!d || !Array.isArray(d.employees) || !Array.isArray(d.shifts) || !Array.isArray(d.requirements)) {
+    if (!isValidAllData(d)) {
       alert('データ構造が正しくありません。');
       return;
     }
@@ -203,15 +229,7 @@ function handleImport(file) {
     );
     if (!ok) return;
 
-    // データ適用（saveXxx 経由にすると touchDataDate が走るため直接書き込み、最後に日時をセット）
-    state.employees    = d.employees;
-    state.shifts       = d.shifts;
-    state.requirements = d.requirements;
-    store.save('employees',    d.employees);
-    store.save('shifts',       d.shifts);
-    store.save('requirements', d.requirements);
-    store.save('currentDataDate', payload.exportedAt ?? new Date().toISOString());
-
+    applyAllData(d, payload.exportedAt);
     switchView('shift');
     alert('読み込みが完了しました');
   };
