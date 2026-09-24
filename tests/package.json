@@ -1,0 +1,14 @@
+{
+  "name": "conbini-shift-tests",
+  "private": true,
+  "description": "コンビニシフト管理のテスト（アプリ本体はビルド不要。テストの実行にだけ Node.js を使う）",
+  "scripts": {
+    "test": "node run.js unit",
+    "test:browser": "node run.js browser",
+    "test:all": "node run.js unit && node run.js browser"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3",
+    "puppeteer-core": "^23.11.1"
+  }
+}

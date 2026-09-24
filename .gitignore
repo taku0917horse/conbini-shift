@@ -1,0 +1,3 @@
+# テスト用の依存パッケージと出力（PDF・スクリーンショットなど）
+tests/node_modules/
+tests/output/

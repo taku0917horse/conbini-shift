@@ -19,6 +19,7 @@
 8. [クラウド同期](#クラウド同期)
 9. [ホーム画面への追加](#ホーム画面への追加)
 10. [時刻の扱い（深夜またぎ）](#時刻の扱い深夜またぎ)
+11. [テスト（開発者向け）](#テスト開発者向け)
 
 ---
 
@@ -283,3 +284,54 @@ Google アカウントでログインすると、データをクラウド（Fire
 - 深夜 3:00 を越える終了時刻は **「翌 HH:MM」** と表示されます。
 - 勤務・ルールの入力で、翌日にまたがる場合は終了時刻に実際の時刻をそのまま入力します（例: 翌6:00 → `06:00`）。終了が開始より小さい場合、自動的に翌日として処理されます。
 - 前日から続く深夜勤務は、翌曜日のシフト表にも自動的に表示されます（両日表示）。
+
+---
+
+## テスト（開発者向け）
+
+アプリ本体はビルド不要ですが、テストの実行には [Node.js](https://nodejs.org/)（v20 以上）を使います。テストは `tests/` にあります。
+
+### 準備（初回のみ）
+
+```sh
+cd tests
+npm install
+```
+
+### 実行
+
+| コマンド | 内容 | 必要なもの |
+|------|------|------|
+| `npm test` | jsdom（Node.js 上のブラウザ代わり）でアプリを動かすテスト。数秒で終わる | Node.js |
+| `npm run test:browser` | 実際の Chrome で動かすテスト（Service Worker・印刷の PDF） | Chrome |
+| `npm run test:all` | 上の両方 | Chrome |
+
+- どのテストも「今日」を **2026年9月24日（木）10:00** に固定して動かします。
+- Chrome（または Edge / Chromium）は自動で探します。見つからないときは、環境変数 `CHROME_PATH` に実行ファイルのパスを指定してください。
+  - 例（PowerShell）: `$env:CHROME_PATH = "C:\Program Files\Google\Chrome\Application\chrome.exe"; npm run test:browser`
+
+### テストの一覧
+
+| ファイル | 確かめること |
+|------|------|
+| `unit/weeks.test.js` | 以前のデータのテンプレートへの移行、週の作成・切り替え・作り直し、当欠、従業員の削除、書き出しの形式 |
+| `unit/night-shortage.test.js` | 夜通しの不足（不足リストの重複・行から追加した時刻）、夜勤の仮範囲、起動時の曜日タブ |
+| `unit/chart-shortage.test.js` | シフトタブの不足表示（実際の時刻の範囲） |
+| `unit/bands.test.js` | 時間帯（区分）の定義から作るボタン・太線、リストの絞り込みの基準 |
+| `unit/validation-storage.test.js` | 勤務時間の入力チェック、端末に保存できないときの対処 |
+| `unit/help-list.test.js` | ヘルプ募集一覧の募集枠の集め方と、印刷できない場合の案内 |
+| `unit/ui.test.js` | 週の表示、共有・データタブの並び、必要人数は全週共通の表示 |
+| `unit/sync.test.js` | クラウド同期（偽の Firebase で2〜3台の端末を再現）: 保存・更新・競合・新しい変更の表示・赤い点 |
+| `browser/service-worker.test.js` | 更新が再読み込みだけで届くか、オフラインで起動するか、通信が遅いときに待たされないか |
+| `browser/print.test.js` | 印刷を PDF にして、ページ数・用紙の向き・時間帯の丸めを確認（PDF と画像は `tests/output/print/` に残る） |
+
+### 見た目の確認用の道具（テストとしては自動実行しない）
+
+```sh
+node browser/screenshots.js                      # 主要な画面を幅360pxで撮影 → tests/output/screenshots/
+node browser/render-snapshot.js save before      # 今の描画を記録
+node browser/render-snapshot.js save after       # （コードを変えてから）もう一度記録
+node browser/render-snapshot.js compare before after   # 違う項目だけを表示
+```
+
+`render-snapshot.js` は、リファクタリングの前後で画面・リスト・印刷・画像保存の見た目が変わっていないかを確かめるためのものです。
