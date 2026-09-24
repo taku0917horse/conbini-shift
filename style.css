@@ -413,6 +413,9 @@ html, body {
   padding-right: 4px;
   font-size: 10px;
   font-weight: 700;
+  line-height: 1;
+  overflow: hidden; /* 15分など短い区間では文字を隠す */
+  box-sizing: border-box;
   border-left: 3px solid transparent;
 }
 

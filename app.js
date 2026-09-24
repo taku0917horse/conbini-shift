@@ -699,22 +699,15 @@ function renderShiftChart() {
     lanes.appendChild(bar);
   });
 
-  // 不足オーバーレイ（1時間単位）。未作成の週は表示しない
-  const countedShifts = dayShifts.filter(isCounted);
-  for (let h = 0; h < TOTAL_HOURS && getTargetShifts(); h++) {
-    const hMin     = h * 60;
-    const required = getRequiredCount(day, hMin);
-    if (required === 0) continue;
-    const count = countedShifts.filter(s => s.startMin <= hMin && s.endMin > hMin).length;
-    if (count >= required) continue;
-
+  // 不足オーバーレイ（印刷・不足リストと同じ計算で、実際の時刻の範囲に表示。未作成の週は空）
+  getShortageOverlays(day).forEach(({ startMin, endMin, isEmpty, short }) => {
     const block = document.createElement('div');
-    block.className   = 'req-block ' + (count === 0 ? 'empty' : 'shortage');
-    block.style.top   = (h * HOUR_H) + 'px';
-    block.style.height = HOUR_H + 'px';
-    block.textContent = count === 0 ? '0人' : `あと${required - count}人`;
+    block.className    = 'req-block ' + (isEmpty ? 'empty' : 'shortage');
+    block.style.top    = minToPx(startMin) + 'px';
+    block.style.height = minToPx(endMin - startMin) + 'px';
+    block.textContent  = isEmpty ? '0人' : `あと${short}人`;
     overlay.appendChild(block);
-  }
+  });
 }
 
 // ========= 従業員リスト描画（区分グループ表示） =========
