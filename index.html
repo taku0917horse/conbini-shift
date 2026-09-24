@@ -10,8 +10,15 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icon.svg" />
   <link rel="stylesheet" href="style.css" />
+  <!-- 印刷時の用紙向き（印刷ボタンで書き換える） -->
+  <style id="print-page-style">@page { size: A4 portrait; margin: 8mm; }</style>
 </head>
 <body>
+  <!-- 端末への保存に失敗したときの帯（app.js の notifyStorageError で表示） -->
+  <div id="storage-error" class="hidden" role="alert">
+    <span>この端末に保存できませんでした（空き容量不足など）。このままでは変更が失われるおそれがあります。「共有・データ」の「書き出し」でバックアップしてください。</span>
+    <button type="button" id="btn-storage-error-close" aria-label="閉じる">×</button>
+  </div>
   <div id="app">
     <!-- ナビゲーション -->
     <nav id="bottom-nav">
@@ -42,6 +49,21 @@
           <button id="btn-add-shift" class="btn-primary">＋勤務追加</button>
         </div>
       </header>
+      <div id="week-bar">
+        <button id="btn-week-prev" class="week-nav-btn" aria-label="前の週">◀</button>
+        <div class="week-label-wrap">
+          <span id="week-label"></span>
+          <input type="date" id="week-date-input" aria-label="日付を指定して週を選ぶ" />
+        </div>
+        <button id="btn-week-next" class="week-nav-btn" aria-label="次の週">▶</button>
+        <button id="btn-week-today" class="btn-size-toggle">今週</button>
+        <button id="btn-mode-toggle" class="btn-size-toggle">テンプレート</button>
+      </div>
+      <div id="week-status" class="hidden">
+        <span id="week-status-text"></span>
+        <button id="btn-create-week" class="btn-primary btn-sm">この週を作成</button>
+        <button id="btn-recreate-week" class="btn-secondary btn-sm hidden">テンプレートから作り直す</button>
+      </div>
       <div id="day-tabs">
         <button class="day-tab active" data-day="月">月</button>
         <button class="day-tab" data-day="火">火</button>
@@ -71,6 +93,7 @@
     <div id="view-requirements" class="view">
       <header class="view-header">
         <h1>必要人数</h1>
+        <span id="req-target-label" class="target-label"></span>
       </header>
       <!-- サブタブ: 不足リストを先頭に -->
       <div id="req-subtab-bar">
@@ -80,30 +103,18 @@
       </div>
       <!-- 不足リスト（デフォルト表示） -->
       <div id="req-sub-shortage" class="req-subview">
-        <div id="shortage-filter-bar">
-          <button class="shortage-filter-btn active" data-band="all">すべて</button>
-          <button class="shortage-filter-btn" data-band="dawn">明朝 3–6</button>
-          <button class="shortage-filter-btn" data-band="morn">早朝 6–9</button>
-          <button class="shortage-filter-btn" data-band="day">日勤 9–17</button>
-          <button class="shortage-filter-btn" data-band="eve">夕勤 17–22</button>
-          <button class="shortage-filter-btn" data-band="night">夜勤 22–翌3</button>
-        </div>
+        <!-- 絞り込みボタンは app.js で SHIFT_BANDS から作る -->
+        <div id="shortage-filter-bar"></div>
         <div id="shortage-list"></div>
       </div>
       <!-- 募集中リスト -->
       <div id="req-sub-tentative" class="req-subview hidden">
-        <div id="tentative-filter-bar">
-          <button class="tentative-filter-btn active" data-band="all">すべて</button>
-          <button class="tentative-filter-btn" data-band="dawn">明朝 3–6</button>
-          <button class="tentative-filter-btn" data-band="morn">早朝 6–9</button>
-          <button class="tentative-filter-btn" data-band="day">日勤 9–17</button>
-          <button class="tentative-filter-btn" data-band="eve">夕勤 17–22</button>
-          <button class="tentative-filter-btn" data-band="night">夜勤 22–翌3</button>
-        </div>
+        <div id="tentative-filter-bar"></div>
         <div id="tentative-list"></div>
       </div>
       <!-- ルール設定（全曜日一覧） -->
       <div id="req-sub-rules" class="req-subview hidden">
+        <p class="req-rules-note">必要人数はすべての週で共通です</p>
         <div id="req-controls">
           <button id="btn-add-req" class="btn-primary">＋追加</button>
           <select id="req-copy-src">
@@ -143,13 +154,13 @@
           <div id="cloud-sync-card" class="data-card hidden">
             <div class="data-card-body">
               <div class="data-card-title">手動同期</div>
-              <div id="cloud-last-sync" class="data-card-desc">最終同期: まだ同期していません</div>
+              <div id="cloud-last-sync" class="data-card-desc">読み込み: まだ ・ 保存: まだ</div>
+              <div id="cloud-sync-status" class="cloud-sync-status"></div>
             </div>
             <button id="btn-cloud-load" class="btn-secondary">更新</button>
             <button id="btn-cloud-save" class="btn-primary">クラウドに保存</button>
           </div>
         </div>
-        <div id="print-preview"></div>
         <div id="data-section">
           <div class="data-section-title">データ管理（バックアップ・共有）</div>
           <div class="data-card">
@@ -168,6 +179,56 @@
             <input type="file" id="import-file" accept=".json,application/json" style="display:none" />
           </div>
         </div>
+        <div id="print-section">
+          <div class="data-section-title">印刷</div>
+          <div class="print-card">
+            <div class="print-row">
+              <span class="print-row-label">種類</span>
+              <div id="print-kind-seg" class="seg seg-wrap">
+                <button type="button" data-kind="shift">時間帯別シフト表</button>
+                <button type="button" data-kind="help">ヘルプ募集一覧</button>
+              </div>
+            </div>
+            <div class="print-row">
+              <span class="print-row-label">開始週</span>
+              <div class="print-week">
+                <button id="print-week-prev" class="week-nav-btn" aria-label="前の週">◀</button>
+                <span id="print-week-label"></span>
+                <button id="print-week-next" class="week-nav-btn" aria-label="次の週">▶</button>
+              </div>
+            </div>
+            <div class="print-row" id="print-weeks-row">
+              <span class="print-row-label">週数</span>
+              <div id="print-weeks-seg" class="seg">
+                <button type="button" data-weeks="1">1週</button>
+                <button type="button" data-weeks="2">2週</button>
+                <button type="button" data-weeks="3">3週</button>
+                <button type="button" data-weeks="4">4週</button>
+              </div>
+            </div>
+            <div class="print-row">
+              <span class="print-row-label">時間帯</span>
+              <div class="print-range">
+                <div class="print-range-inputs">
+                  <input type="time" id="print-start" step="900" aria-label="開始時刻" />
+                  <span>〜</span>
+                  <input type="time" id="print-end" step="900" aria-label="終了時刻" />
+                </div>
+                <div id="print-range-info" class="print-range-info"></div>
+                <div id="print-preset-seg" class="seg seg-wrap"></div>
+              </div>
+            </div>
+            <div class="print-row" id="print-orient-row">
+              <span class="print-row-label">時間軸</span>
+              <div id="print-orient-seg" class="seg">
+                <button type="button" data-orient="portrait">縦（A4縦）</button>
+                <button type="button" data-orient="landscape">横（A4横）</button>
+              </div>
+            </div>
+            <button id="btn-print" class="btn-primary print-btn">印刷</button>
+          </div>
+        </div>
+        <div id="print-preview"></div>
       </div>
     </div>
   </div>
@@ -213,6 +274,15 @@
           <input type="time" id="tentative-end" />
           <button type="button" id="btn-tentative-all" class="btn-secondary btn-sm">全範囲</button>
         </div>
+      </div>
+      <div class="form-group hidden" id="absent-group">
+        <label class="toggle-row">
+          <span>当欠 <span class="form-hint">（人数に数えず、不足リストに反映）</span></span>
+          <span class="toggle-switch">
+            <input type="checkbox" id="shift-absent" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </span>
+        </label>
       </div>
       <div class="modal-actions">
         <button id="btn-shift-save" class="btn-primary">保存</button>
@@ -280,13 +350,8 @@
       </div>
       <div class="form-group">
         <label>区分 <span class="form-hint">（主な勤務帯。制約なし）</span></label>
-        <div id="category-buttons">
-          <button type="button" class="cat-btn" data-cat="明朝">明朝</button>
-          <button type="button" class="cat-btn" data-cat="早朝">早朝</button>
-          <button type="button" class="cat-btn" data-cat="日勤">日勤</button>
-          <button type="button" class="cat-btn" data-cat="夕勤">夕勤</button>
-          <button type="button" class="cat-btn" data-cat="夜勤">夜勤</button>
-        </div>
+        <!-- 区分ボタンは app.js で SHIFT_BANDS から作る -->
+        <div id="category-buttons"></div>
       </div>
       <div class="form-group">
         <label>色</label>

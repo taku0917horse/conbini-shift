@@ -1,0 +1,41 @@
+rules_version = '2';
+
+// コンビニシフト管理: 許可リストのメールアドレスだけが読み書きできる
+//   stores/main              … テンプレート（従業員・テンプレートのシフト・必要人数）
+//   stores/main/weeks/{週}   … 週データ（{週} は月曜日の日付 YYYY-MM-DD）
+// メンバーを追加・削除するときは isAllowed() のメールアドレス一覧を編集して再デプロイする（メールは小文字で書く）。
+// アプリはドキュメントを削除しないため、delete は許可しない。
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAllowed() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in [
+          'taku0917horse@gmail.com'
+        ];
+    }
+
+    // 保存時に付ける更新情報が正しいか（updatedBy は本人のメール、updatedAt はサーバー時刻）
+    function hasValidMeta() {
+      return request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy.email == request.auth.token.email;
+    }
+
+    match /stores/main {
+      allow read: if isAllowed();
+      allow create, update: if isAllowed() && hasValidMeta();
+
+      match /weeks/{weekId} {
+        allow read: if isAllowed();
+        allow create, update: if isAllowed() && hasValidMeta()
+          && weekId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+      }
+    }
+
+    // それ以外はすべて拒否
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
