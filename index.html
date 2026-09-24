@@ -114,6 +114,7 @@
       </div>
       <!-- ルール設定（全曜日一覧） -->
       <div id="req-sub-rules" class="req-subview hidden">
+        <p class="req-rules-note">必要人数はすべての週で共通です</p>
         <div id="req-controls">
           <button id="btn-add-req" class="btn-primary">＋追加</button>
           <select id="req-copy-src">
@@ -158,6 +159,24 @@
             </div>
             <button id="btn-cloud-load" class="btn-secondary">更新</button>
             <button id="btn-cloud-save" class="btn-primary">クラウドに保存</button>
+          </div>
+        </div>
+        <div id="data-section">
+          <div class="data-section-title">データ管理（バックアップ・共有）</div>
+          <div class="data-card">
+            <div class="data-card-body">
+              <div class="data-card-title">書き出し（エクスポート）</div>
+              <div class="data-card-desc">全データを JSON ファイルで書き出します。LINE などで送って共有できます。</div>
+            </div>
+            <button id="btn-export" class="btn-secondary">書き出し</button>
+          </div>
+          <div class="data-card">
+            <div class="data-card-body">
+              <div class="data-card-title">読み込み（インポート）</div>
+              <div class="data-card-desc">JSON ファイルを選択して現在のデータを復元します。上書き前に確認が入ります。</div>
+            </div>
+            <button id="btn-import-trigger" class="btn-secondary">読み込み</button>
+            <input type="file" id="import-file" accept=".json,application/json" style="display:none" />
           </div>
         </div>
         <div id="print-section">
@@ -210,24 +229,6 @@
           </div>
         </div>
         <div id="print-preview"></div>
-        <div id="data-section">
-          <div class="data-section-title">データ管理（バックアップ・共有）</div>
-          <div class="data-card">
-            <div class="data-card-body">
-              <div class="data-card-title">書き出し（エクスポート）</div>
-              <div class="data-card-desc">全データを JSON ファイルで書き出します。LINE などで送って共有できます。</div>
-            </div>
-            <button id="btn-export" class="btn-secondary">書き出し</button>
-          </div>
-          <div class="data-card">
-            <div class="data-card-body">
-              <div class="data-card-title">読み込み（インポート）</div>
-              <div class="data-card-desc">JSON ファイルを選択して現在のデータを復元します。上書き前に確認が入ります。</div>
-            </div>
-            <button id="btn-import-trigger" class="btn-secondary">読み込み</button>
-            <input type="file" id="import-file" accept=".json,application/json" style="display:none" />
-          </div>
-        </div>
       </div>
     </div>
   </div>

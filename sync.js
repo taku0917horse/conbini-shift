@@ -184,6 +184,29 @@ function renderLastSync() {
   // 新しい変更があるときは「更新」を目立たせる
   el('btn-cloud-load').classList.toggle('btn-primary', newer.length > 0);
   el('btn-cloud-load').classList.toggle('btn-secondary', newer.length === 0);
+  renderNavBadge();
+}
+
+// ナビの「共有・データ」に赤い点（ログイン中で、未保存の変更かクラウドの新しい変更があるとき）
+// どのタブを開いていても保存し忘れ・読み込み忘れに気づけるようにする
+function renderNavBadge() {
+  const btn   = document.querySelector('.nav-btn[data-view="print"]');
+  const dirty = !!sync.user && getDirtyDocs().length > 0;
+  const newer = !!sync.user && sync.cloudNewer.length > 0;
+  btn.classList.toggle('has-badge', dirty || newer);
+  const notes = [dirty && 'クラウドに未保存の変更あり', newer && 'クラウドに新しい変更あり'].filter(Boolean);
+  btn.setAttribute('aria-label', notes.length ? `共有・データ（${notes.join('、')}）` : '共有・データ');
+}
+
+// データが変わったら点を更新（連続した変更はまとめて1回）
+let badgeTimer = null;
+function onDataChange() {
+  clearTimeout(badgeTimer);
+  badgeTimer = setTimeout(() => {
+    renderNavBadge();
+    // 共有・データタブを開いているなら状態の文章も更新
+    if (document.getElementById('view-print').classList.contains('active')) renderLastSync();
+  }, 300);
 }
 
 function renderAuthUI() {
@@ -418,6 +441,7 @@ async function initSync() {
   el('btn-cloud-load').addEventListener('click', loadFromCloud);
   // 共有・データタブを開くたびに「未保存の変更」を更新し、クラウドの新しい変更も確かめる
   document.querySelector('.nav-btn[data-view="print"]').addEventListener('click', onDataTabOpen);
+  window.addEventListener('conbini:datachange', onDataChange);
   // 以前のキー（②の単一ドキュメント時代 / 読み込みと保存を区別していなかった最終同期時刻）
   try { ['cloudBaseUpdatedAt', 'lastSyncAt'].forEach(k => localStorage.removeItem(k)); } catch { /* 保存できない環境 */ }
   renderLastSync();

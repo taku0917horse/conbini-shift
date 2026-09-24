@@ -96,6 +96,20 @@ html, body {
 }
 
 .nav-btn.active { color: var(--primary); }
+
+/* クラウドに未保存の変更 / 新しい変更があるときの赤い点（sync.js の renderNavBadge） */
+.nav-btn { position: relative; }
+.nav-btn.has-badge::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: calc(50% + 8px);
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 2px solid var(--surface);
+}
 .nav-icon { font-size: 20px; }
 .nav-label { font-size: 10px; }
 
@@ -245,6 +259,8 @@ html, body {
   font-size: 12px;
   color: var(--muted);
 }
+
+#week-status .btn-sm { white-space: nowrap; flex-shrink: 0; }
 
 #week-status.created .btn-sm {
   font-size: 11px !important;
@@ -571,6 +587,15 @@ html, body {
 }
 
 /* ========= ルール設定 ========= */
+.req-rules-note {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
 #req-controls {
   display: flex;
   align-items: center;
@@ -950,9 +975,10 @@ html, body {
   overflow: auto; /* 横スクロールも許可（幅広グリッド対応） */
 }
 
+/* 並び: クラウド同期 → データ管理 → 印刷（プレビューが縦に長いので最後） */
 #data-section {
-  padding: 16px;
-  border-top: 8px solid var(--bg);
+  padding: 16px 16px 6px;
+  border-bottom: 8px solid var(--bg);
 }
 
 #cloud-section {

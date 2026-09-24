@@ -133,6 +133,14 @@ function formatWeekRange(weekKey) {
   return `${year}${formatMD(mon)}(月)〜${formatMD(sun)}(日)`;
 }
 
+// 例: 9/21〜9/27（週は必ず月曜始まりなので曜日を省いた短い表記。狭い画面の週送り用）
+function formatWeekRangeShort(weekKey) {
+  const mon = parseDateKey(weekKey);
+  const sun = parseDateKey(addDaysToKey(weekKey, 6));
+  const year = mon.getFullYear() !== new Date().getFullYear() ? `${mon.getFullYear()}/` : '';
+  return `${year}${formatMD(mon)}〜${formatMD(sun)}`;
+}
+
 // 勤務・必要人数の入力ボタン: 区分の時間帯 + 日勤の前半・後半
 const TIME_PRESETS = [
   ...SHIFT_BANDS.map(b => ({ label: bandRangeLabel(b), startMin: b.startMin, endMin: b.endMin })),
@@ -214,7 +222,12 @@ const state = {
   reqDay:             '月',
 };
 
-function touchDataDate() { store.save('currentDataDate', new Date().toISOString()); }
+// データを変更したら呼ぶ（日時の記録 + sync.js へ「変更あり」を知らせる）
+function touchDataDate() {
+  store.save('currentDataDate', new Date().toISOString());
+  notifyDataChange();
+}
+function notifyDataChange() { window.dispatchEvent(new Event('conbini:datachange')); }
 function saveEmployees() { store.save('employees', state.employees); touchDataDate(); }
 function saveShifts() {
   store.save('templateShifts', state.templateShifts);
@@ -275,6 +288,7 @@ function applyAllData(d, dataDate) {
   store.save('weeks',          d.weeks);
   store.save('requirements',   d.requirements);
   store.save('currentDataDate', dataDate ?? new Date().toISOString());
+  notifyDataChange();
 }
 
 // 表示中のビューを再描画
@@ -592,7 +606,7 @@ function renderWeekBar() {
   document.getElementById('week-bar').classList.toggle('template-mode', tmpl);
   document.getElementById('week-label').textContent = tmpl
     ? 'テンプレート（毎週の基本パターン）'
-    : formatWeekRange(state.currentWeek);
+    : formatWeekRangeShort(state.currentWeek);
   document.getElementById('week-date-input').value = state.currentWeek;
   document.getElementById('btn-mode-toggle').textContent = tmpl ? '週表示に戻る' : 'テンプレート';
   const status = document.getElementById('week-status');
@@ -1030,8 +1044,12 @@ function getDayTitle(day) {
 }
 
 // 必要人数タブ: 不足・募集中の対象を表示
+// ルール設定は週に関係なく共通なので、ルール設定を開いているときは対象の週を出さない
 function renderReqTargetLabel() {
-  document.getElementById('req-target-label').textContent = `対象: ${getTargetLabel()}`;
+  const label = document.getElementById('req-target-label');
+  const rulesOpen = document.querySelector('.req-subtab.active')?.dataset.subtab === 'rules';
+  label.textContent = `対象: ${getTargetLabel()}`;
+  label.classList.toggle('hidden', rulesOpen);
 }
 
 // ========= 印刷（時間帯別シフト表） =========
@@ -2595,6 +2613,7 @@ function init() {
       if (btn.dataset.subtab === 'shortage')  renderShortageList();
       if (btn.dataset.subtab === 'tentative') renderTentativeList();
       if (btn.dataset.subtab === 'rules')     renderReqRules();
+      renderReqTargetLabel();
     });
   });
 
