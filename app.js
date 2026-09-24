@@ -90,6 +90,11 @@ function addDaysToKey(key, n) {
   return toDateKey(d);
 }
 
+// 今日（3:00 区切り）の曜日
+function getTodayDay() {
+  return DAYS[(getBusinessDate(new Date()).getDay() + 6) % 7];
+}
+
 // 週キー + 曜日 → その日の Date
 function getDateOfDay(weekKey, day) {
   const d = parseDateKey(weekKey);
@@ -166,7 +171,7 @@ const state = {
   requirements:   rawReqs,
   mode:           'week',        // 'week'（日付付きの週） | 'template'
   currentWeek:    getWeekKey(getBusinessDate(new Date())),
-  currentDay:     '月',
+  currentDay:     getTodayDay(),
   editingShiftId: null,
   editingEmpId:   null,
   editingReqId:   null,
@@ -189,7 +194,13 @@ function uid()           { return Math.random().toString(36).slice(2, 10); }
 // 仮（募集中）の時間範囲を返す。旧 isTentative フラグは全範囲として移行。
 function getTentativeRange(shift) {
   if (shift.tentativeStart != null && shift.tentativeEnd != null) {
-    return { start: shift.tentativeStart, end: shift.tentativeEnd };
+    let start = shift.tentativeStart, end = shift.tentativeEnd;
+    // 以前の保存形式: 夜勤の 3:00 以降の時刻が当日の朝として保存されていたら翌日側に読み替える
+    if (end <= shift.startMin && start + 1440 < shift.endMin) {
+      start += 1440;
+      end   += 1440;
+    }
+    return { start, end };
   }
   if (shift.isTentative) {
     return { start: shift.startMin, end: shift.endMin };
@@ -422,42 +433,78 @@ function getRequiredCount(day, min) {
   return rules.length === 0 ? 0 : Math.max(...rules.map(r => r.count));
 }
 
-// 曜日の不足区間をイベントベースで計算し、連続区間をマージして返す
-function computeShortages(day) {
-  if (!getTargetShifts()) return [];  // 未作成の週
-  const dayShifts = getEffectiveShiftsForDay(day).filter(isCounted);
-  const dayReqs   = getEffectiveReqsForDay(day);
-  if (dayReqs.length === 0) return [];
+// 隣の日（週をまたぐ場合は隣の週）。テンプレートは月〜日を循環
+function getAdjacentDay(day, weekKey, delta) {
+  const idx = DAYS.indexOf(day) + delta;
+  if (idx >= 0 && idx < DAYS.length) return { day: DAYS[idx], weekKey };
+  return {
+    day: DAYS[(idx + DAYS.length) % DAYS.length],
+    weekKey: isTemplateMode() ? weekKey : addDaysToKey(weekKey, delta * 7),
+  };
+}
 
-  // ブレークポイント = 全シフト・全ルールの開始/終了
-  const bp = new Set([0, MAX_MIN]);
-  dayShifts.forEach(s => { bp.add(s.startMin); bp.add(Math.min(s.endMin, MAX_MIN)); });
-  dayReqs.forEach(r   => { bp.add(r.startMin); bp.add(Math.min(r.endMin, MAX_MIN)); });
+// 当日 3:00〜翌3:00 の不足区間（隣り合う区間はまとめ、不足人数は最大値）
+function getDayShortageSegs(day, weekKey) {
+  const merged = [];
+  getShortageOverlays(day, weekKey)
+    .filter(ov => ov.startMin < 1440)
+    .forEach(ov => {
+      const seg  = { startMin: ov.startMin, endMin: Math.min(ov.endMin, 1440), short: ov.short };
+      const last = merged[merged.length - 1];
+      if (last && last.endMin === seg.startMin) {
+        last.endMin = seg.endMin;
+        last.short  = Math.max(last.short, seg.short);
+      } else {
+        merged.push(seg);
+      }
+    });
+  return merged;
+}
 
-  const points = [...bp].sort((a, b) => a - b);
-  const segs = [];
+// 日付の境目（翌3:00）から翌日の早朝へ続く不足（翌日の 3:00 からの区間。翌6:00 まで）
+// 翌日のデータがあれば翌日側の計算（翌日の早朝シフトも含む）を使い、なければ当日側の計算の翌3:00以降の分を使う
+function getCarryOverSeg(day, weekKey) {
+  const next = getAdjacentDay(day, weekKey, 1);
+  let first;
+  if (getTargetShifts(next.weekKey)) {
+    first = getDayShortageSegs(next.day, next.weekKey)[0];
+  } else {
+    const after = getShortageOverlays(day, weekKey)
+      .filter(ov => ov.endMin > 1440)
+      .map(ov => ({ startMin: Math.max(ov.startMin, 1440) - 1440, endMin: ov.endMin - 1440, short: ov.short }));
+    first = after.reduce((acc, seg) => {
+      if (!acc) return { ...seg };
+      if (acc.endMin === seg.startMin) return { ...acc, endMin: seg.endMin, short: Math.max(acc.short, seg.short) };
+      return acc;
+    }, null);
+  }
+  return first && first.startMin === 0 && first.endMin <= MAX_MIN - 1440 ? first : null;
+}
 
-  for (let i = 0; i < points.length - 1; i++) {
-    const start = points[i];
-    const end   = points[i + 1];
-    const req   = getRequiredCount(day, start);
-    if (req === 0) continue;
-    const actual = dayShifts.filter(s => s.startMin <= start && s.endMin > start).length;
-    if (actual < req) segs.push({ startMin: start, endMin: end, short: req - actual });
+// 不足リスト用の不足区間 [{ startMin, endMin, short }]
+// 各日 3:00〜翌3:00 で数える。翌3:00 をまたいで翌日の早朝まで続く不足は前日の区間として翌6:00まで延ばし、
+// 翌日側からは除く（同じ時間が2回出ないように）
+function computeShortages(day, weekKey = state.currentWeek) {
+  if (!getTargetShifts(weekKey)) return [];  // 未作成の週
+  const segs = getDayShortageSegs(day, weekKey);
+
+  // 前日の区間として延ばされた早朝の分は除く（getCarryOverSeg と同じ条件）
+  const prev = getAdjacentDay(day, weekKey, -1);
+  if (segs.length && segs[0].startMin === 0 && segs[0].endMin <= MAX_MIN - 1440 && getTargetShifts(prev.weekKey)) {
+    const prevSegs = getDayShortageSegs(prev.day, prev.weekKey);
+    const prevLast = prevSegs[prevSegs.length - 1];
+    if (prevLast && prevLast.endMin === 1440) segs.shift();
   }
 
-  // 隣接する不足区間をマージ（不足数は最大値を保持）
-  const merged = [];
-  for (const seg of segs) {
-    const last = merged[merged.length - 1];
-    if (last && last.endMin === seg.startMin) {
-      last.endMin = seg.endMin;
-      last.short  = Math.max(last.short, seg.short);
-    } else {
-      merged.push({ ...seg });
+  const last = segs[segs.length - 1];
+  if (last && last.endMin === 1440) {
+    const carry = getCarryOverSeg(day, weekKey);
+    if (carry) {
+      last.endMin = 1440 + carry.endMin;
+      last.short  = Math.max(last.short, carry.short);
     }
   }
-  return merged;
+  return segs;
 }
 
 // 印刷・画像用：不足区間を { startMin, endMin, isEmpty, short } の配列で返す（short = 不足人数）
@@ -525,6 +572,7 @@ function renderWeekBar() {
   const todayKey = toDateKey(getBusinessDate(new Date()));
   document.querySelectorAll('.day-tab').forEach(tab => {
     const day = tab.dataset.day;
+    tab.classList.toggle('active', day === state.currentDay);
     tab.textContent = '';
     tab.appendChild(document.createTextNode(day));
     tab.classList.remove('today');
@@ -2271,7 +2319,8 @@ function init() {
     setCurrentWeek(getWeekKey(parseDateKey(weekDateInput.value)));
   });
   document.getElementById('btn-week-today').addEventListener('click', () => {
-    setCurrentWeek(getWeekKey(getBusinessDate(new Date())));
+    state.currentDay = getTodayDay();
+    setCurrentWeek(getThisWeekKey());
   });
   document.getElementById('btn-mode-toggle').addEventListener('click', () => {
     state.mode = isTemplateMode() ? 'week' : 'template';
@@ -2345,9 +2394,15 @@ function init() {
       const tsStr = document.getElementById('tentative-start').value;
       const teStr = document.getElementById('tentative-end').value;
       if (tsStr && teStr) {
+        // 勤務時間に合わせて解釈する（夜勤の 3:00 以降は翌日の時刻）
         tentativeStart = timeToMin(tsStr);
-        tentativeEnd   = timeToMin(teStr);
+        if (tentativeStart < startMin) tentativeStart += 1440;
+        tentativeEnd = timeToMin(teStr);
         if (tentativeEnd <= tentativeStart) tentativeEnd += 1440;
+        if (tentativeStart >= endMin || tentativeEnd > endMin) {
+          alert('仮（募集中）の時間は、勤務時間の範囲内で指定してください。');
+          return;
+        }
       }
     }
 
