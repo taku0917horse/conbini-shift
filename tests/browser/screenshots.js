@@ -68,6 +68,14 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     });
     await shot('data-tab');
 
+    // 分かれた勤務の結合の案内（起動時に一度だけ出る画面を再現）
+    await page.evaluate(() => {
+      document.getElementById('merge-count').textContent = '12';
+      document.getElementById('modal-merge').classList.remove('hidden');
+    });
+    await shot('merge-modal');
+    await page.evaluate(() => document.getElementById('modal-merge').classList.add('hidden'));
+
     // 保存できないときの帯
     await page.evaluate(() => notifyStorageError(new Error('screenshot')));
     await shot('storage-error');

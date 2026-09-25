@@ -34,7 +34,9 @@ const W = '2026-09-21';
   tryAdd('09:00', '22:00');
   check('13時間は確認なしで保存', shifts().length === 2 && confirms.length === nConf);
   tryAdd('22:00', '06:00');
-  check('夜勤 22:00〜翌6:00 は確認なし', shifts().length === 3 && shifts()[2].endMin === 1620 && confirms.length === nConf);
+  // 直前の 9:00〜22:00 とつながるので、保存時に 9:00〜翌6:00 の1つにまとまる
+  check('夜勤 22:00〜翌6:00 は確認なし', confirms.length === nConf
+    && shifts().length === 2 && shifts().some(s => s.startMin === 360 && s.endMin === 1620));
 
   // 未入力
   w.openShiftModal();

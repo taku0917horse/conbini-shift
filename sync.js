@@ -423,9 +423,12 @@ async function loadFromCloud() {
     saveLocal(KEY_LAST_LOAD, String(Date.now()));
     saveLocal(KEY_LOAD_CLOUD_MS, String(loadedMax));
     sync.cloudNewer = [];
+    // 分かれた勤務はまとめる（同期状態はクラウドの内容で記録済みなので、まとめた分は「未保存の変更」になる）
+    const merged = window.mergeLoadedShifts();
     renderLastSync();
     window.rerenderCurrentView();
-    alert('クラウドのデータを読み込みました');
+    alert('クラウドのデータを読み込みました' +
+      (merged ? `\n（分かれていた勤務を ${merged} か所まとめました。「クラウドに保存」で反映できます）` : ''));
   } catch (e) {
     alert(`読み込みに失敗しました。\n${describeError(e)}`);
   } finally {

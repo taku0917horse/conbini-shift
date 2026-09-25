@@ -370,8 +370,9 @@ function handleImport(file) {
     if (!ok) return;
 
     applyAllData(d, payload.exportedAt);
+    const merged = mergeLoadedShifts();
     switchView('shift');
-    alert('読み込みが完了しました');
+    alert('読み込みが完了しました' + (merged ? `\n（分かれていた勤務を ${merged} か所まとめました）` : ''));
   };
 
   reader.onerror = () => alert('ファイルの読み込みに失敗しました。');
@@ -524,6 +525,57 @@ function mergeAdjacentShifts(shifts, { wrapWeek = false } = {}) {
     });
   });
   return { shifts: out, merged: shifts.length - out.length };
+}
+
+// 勤務の一覧をまとめて中身を入れ替える（配列そのものは同じものを使い続ける）→ まとめた箇所の数
+function mergeShiftList(list, wrapWeek) {
+  const r = mergeAdjacentShifts(list, { wrapWeek });
+  if (r.merged > 0) list.splice(0, list.length, ...r.shifts);
+  return r.merged;
+}
+
+// テンプレートと全週をまとめる → まとめた箇所の数（保存は呼び出し側で saveShifts）
+function mergeAllShiftLists() {
+  let total = mergeShiftList(state.templateShifts, true);
+  Object.values(state.weeks).forEach(w => { total += mergeShiftList(w.shifts, false); });
+  return total;
+}
+
+// まとめられる箇所の数（データは変えない）
+function countMergeableShifts() {
+  let total = mergeAdjacentShifts(state.templateShifts, { wrapWeek: true }).merged;
+  Object.values(state.weeks).forEach(w => { total += mergeAdjacentShifts(w.shifts).merged; });
+  return total;
+}
+
+// 読み込んだデータ（JSON・クラウド）に分かれた勤務があればまとめて保存 → まとめた箇所の数
+function mergeLoadedShifts() {
+  const n = mergeAllShiftLists();
+  if (n > 0) saveShifts();
+  return n;
+}
+
+// ========= 既存データの結合（起動時に一度だけ。まとめる前にバックアップの案内を出す） =========
+const MERGE_DONE_KEY = 'shiftMergeDone';
+
+function checkShiftMergeOnStartup() {
+  if (store.load(MERGE_DONE_KEY, false)) return;
+  const n = countMergeableShifts();
+  if (n === 0) {
+    store.save(MERGE_DONE_KEY, true);
+    return;
+  }
+  document.getElementById('merge-count').textContent = n;
+  document.getElementById('modal-merge').classList.remove('hidden');
+}
+
+function runStartupMerge() {
+  const n = mergeAllShiftLists();
+  if (n > 0) saveShifts();
+  store.save(MERGE_DONE_KEY, true);
+  document.getElementById('modal-merge').classList.add('hidden');
+  rerenderCurrentView();
+  alert(`分かれていた勤務を ${n} か所まとめました。`);
 }
 
 // 指定曜日の実効シフト（自日分 + 前日からの日またぎ分を当日座標に変換）
@@ -2586,6 +2638,8 @@ function init() {
       const absent = isTemplateMode() ? {} : { absent: false };
       days.forEach(day => target.push({ id: uid(), empId, day, startMin, endMin, breakMin, tentativeStart, tentativeEnd, ...absent }));
     }
+    // 同じ人のつながった勤務（例: 3:00〜6:00 と 6:00〜9:00）は1つにまとめる
+    mergeShiftList(target, isTemplateMode());
     saveShifts();
     closeShiftModal();
     renderShiftChart();
@@ -2829,6 +2883,16 @@ function init() {
   document.getElementById('btn-export').addEventListener('click', exportData);
 
   // === インポート ===
+  // === 既存データの結合の案内 ===
+  document.getElementById('btn-merge-export').addEventListener('click', () => {
+    exportData();
+    runStartupMerge();
+  });
+  document.getElementById('btn-merge-run').addEventListener('click', runStartupMerge);
+  document.getElementById('btn-merge-later').addEventListener('click', () => {
+    document.getElementById('modal-merge').classList.add('hidden'); // 次に起動したときにもう一度聞く
+  });
+
   document.getElementById('btn-import-trigger').addEventListener('click', () => {
     document.getElementById('import-file').value = ''; // 同ファイル再選択を許可
     document.getElementById('import-file').click();
@@ -2839,6 +2903,7 @@ function init() {
   });
 
   renderShiftChart();
+  checkShiftMergeOnStartup();
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -1771,6 +1771,11 @@ html, body {
   margin-top: 20px;
 }
 
+/* ボタンを縦に並べる（選択肢の説明が長いとき） */
+.modal-actions.stacked { flex-direction: column; }
+
+.merge-desc { font-size: 14px; line-height: 1.6; margin: 8px 0; }
+
 .modal-actions .btn-primary  { flex: 1; }
 .modal-actions .btn-secondary { flex: 1; }
 

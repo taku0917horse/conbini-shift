@@ -226,5 +226,25 @@ const tick = () => new Promise(r => setTimeout(r, 20));
   await tick();
   check('未ログインでは赤い点を出さない', !D.w.document.querySelector('.nav-btn[data-view="print"]').classList.contains('has-badge'));
 
+  // ---- 10. クラウドから分かれた勤務を読み込むと、まとめて「未保存の変更」にする ----
+  cloud.clear();
+  const piece = (id, day, s, e) => ({ id, empId: 'e1', day, startMin: s, endMin: e, breakMin: 0, tentativeStart: null, tentativeEnd: null, absent: false });
+  cloud.set('stores/main', { employees: [emp], templateShifts: [piece('t1', '月', 0, 180), piece('t2', '月', 180, 360)],
+    requirements: [], updatedAt: 10, updatedBy: { name: 'B', email: 'b@example.com' } });
+  cloud.set('stores/main/weeks/2026-09-21', { createdAt: 'x', shifts: [piece('w1', '火', 360, 600), piece('w2', '火', 600, 840)],
+    updatedAt: 11, updatedBy: { name: 'B', email: 'b@example.com' } });
+  const E = boot({ employees: [], templateShifts: [], weeks: {}, requirements: [], shiftMergeDone: true }, userA);
+  await tick();
+  await E.click('btn-cloud-load');
+  check('読み込み時: テンプレートの分かれた勤務をまとめる', E.st().templateShifts.length === 1 && E.st().templateShifts[0].endMin === 360);
+  check('読み込み時: 週の分かれた勤務をまとめる', E.st().weeks['2026-09-21'].shifts.length === 1
+    && E.st().weeks['2026-09-21'].shifts[0].startMin === 360 && E.st().weeks['2026-09-21'].shifts[0].endMin === 840);
+  check('読み込み時: まとめた数と保存の案内', E.log.alerts.at(-1).includes('分かれていた勤務を 2 か所まとめました'));
+  check('読み込み時: まとめた分は未保存の変更（赤い点）', E.$('cloud-sync-status').textContent.includes('保存していない変更')
+    && E.w.document.querySelector('.nav-btn[data-view="print"]').classList.contains('has-badge'));
+  await E.click('btn-cloud-save');
+  check('保存するとクラウドもまとめた形になる', cloud.get('stores/main').templateShifts.length === 1
+    && cloud.get('stores/main/weeks/2026-09-21').shifts.length === 1);
+
   finish();
 })();

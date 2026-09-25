@@ -378,6 +378,20 @@
     </div>
   </div>
 
+  <!-- モーダル: 分かれた勤務の結合（起動時に一度だけ） -->
+  <div id="modal-merge" class="modal hidden">
+    <div class="modal-content">
+      <h2>勤務をまとめます</h2>
+      <p class="merge-desc">時間帯ごとに分かれて入力されている勤務が <strong id="merge-count"></strong> か所あります（例: 3:00〜6:00 と 6:00〜9:00）。同じ人のつながった勤務を1つにまとめます。</p>
+      <p class="merge-desc">まとめる前に、念のため「書き出し」でバックアップ（JSON ファイル）を取っておくことをおすすめします。</p>
+      <div class="modal-actions stacked">
+        <button id="btn-merge-export" class="btn-primary">書き出してからまとめる</button>
+        <button id="btn-merge-run" class="btn-secondary">まとめる</button>
+        <button id="btn-merge-later" class="btn-secondary">今はしない（次回もう一度聞く）</button>
+      </div>
+    </div>
+  </div>
+
   <!-- モーダル: 従業員週間スケジュール -->
   <div id="modal-emp-week" class="modal hidden">
     <div class="modal-content emp-week-modal">
