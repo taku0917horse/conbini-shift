@@ -141,12 +141,11 @@ function formatWeekRangeShort(weekKey) {
   return `${year}${formatMD(mon)}〜${formatMD(sun)}`;
 }
 
-// 勤務・必要人数の入力ボタン: 区分の時間帯 + 日勤の前半・後半
-const TIME_PRESETS = [
-  ...SHIFT_BANDS.map(b => ({ label: bandRangeLabel(b), startMin: b.startMin, endMin: b.endMin })),
+// 勤務・必要人数の入力で、区分の帯（複数選択）とは別に1回押しで入れられる時間（日勤の前半・後半）
+const EXTRA_TIME_PRESETS = [
   { label: '9–13',  startMin: 360, endMin: 600 },
   { label: '13–17', startMin: 600, endMin: 840 },
-].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+];
 
 const COLORS = [
   '#2563eb', '#16a34a', '#dc2626', '#9333ea',
@@ -2222,6 +2221,137 @@ function updateBreakBtnState() {
   });
 }
 
+// ========= 時間帯の帯の複数選択（勤務・必要人数の入力で共通） =========
+// つながる帯だけを選べる（夜勤→明朝もつながる）。選んだ範囲を開始・終了の入力欄に入れ、「3:00〜9:00（6時間）」と表示する。
+// 時刻を手で直したら表示を追従させ、帯の組み合わせとちょうど一致するときだけボタンを選択状態にする
+const bandPickers = {};
+
+// 選んだ帯（SHIFT_BANDS の添字の集合）→ { first, last, startMin, endMin }。選べない組み合わせなら null
+// （つながっていない / 5つ全部＝24時間 / シフト表に描ける翌6:00を超える）
+function bandArc(sel) {
+  const N = SHIFT_BANDS.length;
+  if (sel.size === 0 || sel.size >= N) return null;
+  const first = [...sel].find(i => !sel.has((i - 1 + N) % N));
+  if (first == null) return null;
+  const startMin = SHIFT_BANDS[first].startMin;
+  let endMin = startMin;
+  let i = first;
+  for (let k = 0; k < sel.size; k++) {
+    if (!sel.has(i)) return null;
+    endMin += SHIFT_BANDS[i].endMin - SHIFT_BANDS[i].startMin;
+    i = (i + 1) % N;
+  }
+  if (endMin > MAX_MIN) return null;
+  return { first, last: (first + sel.size - 1) % N, startMin, endMin };
+}
+
+// 開始・終了の入力値 → { startMin, endMin }（終了が開始以前なら翌日）。未入力・同じ時刻なら null
+function readTimeRange(startStr, endStr) {
+  if (!startStr || !endStr) return null;
+  const startMin = timeToMin(startStr);
+  let endMin = timeToMin(endStr);
+  if (endMin === startMin) return null;
+  if (endMin < startMin) endMin += 1440;
+  return { startMin, endMin };
+}
+
+// 時間 → 帯の選択（帯の組み合わせとちょうど一致するときだけ。一致しなければ空）
+function bandsForRange(r) {
+  if (!r) return new Set();
+  const N = SHIFT_BANDS.length;
+  let i = SHIFT_BANDS.findIndex(b => b.startMin === r.startMin);
+  if (i < 0) return new Set();
+  const cand = new Set();
+  let end = r.startMin;
+  while (cand.size < N && end < r.endMin) {
+    cand.add(i);
+    end += SHIFT_BANDS[i].endMin - SHIFT_BANDS[i].startMin;
+    i = (i + 1) % N;
+  }
+  return end === r.endMin && bandArc(cand) ? cand : new Set();
+}
+
+// wrap の中に帯のボタン・クリア・よく使う時間のボタンを作る → { sync(): 入力欄から選択と表示を合わせる }
+function createBandPicker({ wrapId, startId, endId, infoId }) {
+  const wrap    = document.getElementById(wrapId);
+  const startIn = document.getElementById(startId);
+  const endIn   = document.getElementById(endId);
+  const info    = document.getElementById(infoId);
+  let sel = new Set();
+
+  const setInputs = (startMin, endMin) => {
+    startIn.value = minToTimeInput(startMin);
+    endIn.value   = minToTimeInput(endMin);
+  };
+
+  // 押せるか: 選んでいない帯は選ぶと選べる組み合わせになるとき、選んでいる帯は範囲の両端のときだけ
+  const canToggle = i => {
+    if (sel.has(i)) {
+      if (sel.size === 1) return true;
+      const arc = bandArc(sel);
+      return !!arc && (i === arc.first || i === arc.last);
+    }
+    return !!bandArc(new Set([...sel, i]));
+  };
+
+  const render = () => {
+    bandBtns.forEach((btn, i) => {
+      btn.classList.toggle('active', sel.has(i));
+      btn.disabled = !canToggle(i);
+    });
+    clearBtn.classList.toggle('hidden', sel.size === 0);
+    const r = readTimeRange(startIn.value, endIn.value);
+    info.textContent = r ? `${minToTimeShort(r.startMin)}〜${minToTimeShort(r.endMin)}（${formatDuration(r.endMin - r.startMin)}）` : '';
+  };
+
+  const toggle = i => {
+    if (!canToggle(i)) return;
+    const next = new Set(sel);
+    if (next.has(i)) next.delete(i); else next.add(i);
+    sel = next;
+    const arc = bandArc(sel);
+    if (arc) setInputs(arc.startMin, arc.endMin);
+    render();
+  };
+
+  const sync = () => {
+    sel = bandsForRange(readTimeRange(startIn.value, endIn.value));
+    render();
+  };
+
+  const bandRow = makeEl('div', 'band-picker');
+  const bandBtns = SHIFT_BANDS.map((b, i) => {
+    const btn = makeEl('button', 'preset-btn band-btn', bandLabel(b));
+    btn.type = 'button';
+    btn.dataset.band = b.id;
+    btn.addEventListener('click', () => toggle(i));
+    bandRow.appendChild(btn);
+    return btn;
+  });
+  const clearBtn = makeEl('button', 'band-clear', 'クリア');
+  clearBtn.type = 'button';
+  clearBtn.addEventListener('click', () => { sel = new Set(); render(); }); // 入力欄の時刻はそのまま
+  bandRow.appendChild(clearBtn);
+  wrap.appendChild(bandRow);
+
+  const extraRow = makeEl('div', 'band-extra');
+  extraRow.appendChild(makeEl('span', 'band-extra-label', 'よく使う時間:'));
+  EXTRA_TIME_PRESETS.forEach(p => {
+    const btn = makeEl('button', 'preset-btn', p.label);
+    btn.type = 'button';
+    btn.addEventListener('click', () => { setInputs(p.startMin, p.endMin); sync(); });
+    extraRow.appendChild(btn);
+  });
+  wrap.appendChild(extraRow);
+
+  ['input', 'change'].forEach(ev => {
+    startIn.addEventListener(ev, sync);
+    endIn.addEventListener(ev, sync);
+  });
+  sync();
+  return { sync };
+}
+
 // ========= モーダル: 勤務 =========
 const LONG_SHIFT_MIN = 16 * 60; // これを超える勤務は保存前に確認する
 function openShiftModal(shiftId = null, prefill = null) {
@@ -2291,6 +2421,7 @@ function openShiftModal(shiftId = null, prefill = null) {
   updateBreakBtnState();
   updateShiftSaveBtnState();
   updateTentativeGroup();
+  bandPickers.shift.sync();
   document.getElementById('modal-shift').classList.remove('hidden');
 }
 
@@ -2335,6 +2466,7 @@ function openReqModal(ruleId = null) {
     delBtn.classList.add('hidden');
   }
   document.getElementById('req-count-val').textContent = state.reqModalCount;
+  bandPickers.req.sync();
   document.getElementById('modal-req').classList.remove('hidden');
 }
 
@@ -2578,19 +2710,8 @@ function init() {
   // === 勤務モーダル ===
   document.getElementById('btn-add-shift').addEventListener('click', () => openShiftModal());
 
-  // シフトプリセット
-  const presetWrap = document.getElementById('preset-buttons');
-  TIME_PRESETS.forEach(({ label, startMin, endMin }) => {
-    const btn = document.createElement('button');
-    btn.className   = 'preset-btn';
-    btn.textContent = label;
-    btn.type        = 'button';
-    btn.addEventListener('click', () => {
-      document.getElementById('shift-start').value = minToTimeInput(startMin);
-      document.getElementById('shift-end').value   = minToTimeInput(endMin);
-    });
-    presetWrap.appendChild(btn);
-  });
+  // 時間帯（帯の複数選択）
+  bandPickers.shift = createBandPicker({ wrapId: 'preset-buttons', startId: 'shift-start', endId: 'shift-end', infoId: 'shift-range-info' });
 
   // 休憩プリセットボタン
   document.querySelectorAll('.break-preset-btn').forEach(btn => {
@@ -2830,19 +2951,8 @@ function init() {
   // === ルールモーダル ===
   document.getElementById('btn-add-req').addEventListener('click', () => openReqModal());
 
-  // ルールプリセット
-  const reqPresetWrap = document.getElementById('req-preset-buttons');
-  TIME_PRESETS.forEach(({ label, startMin, endMin }) => {
-    const btn = document.createElement('button');
-    btn.className   = 'preset-btn';
-    btn.textContent = label;
-    btn.type        = 'button';
-    btn.addEventListener('click', () => {
-      document.getElementById('req-start').value = minToTimeInput(startMin);
-      document.getElementById('req-end').value   = minToTimeInput(endMin);
-    });
-    reqPresetWrap.appendChild(btn);
-  });
+  // 時間帯（帯の複数選択）
+  bandPickers.req = createBandPicker({ wrapId: 'req-preset-buttons', startId: 'req-start', endId: 'req-end', infoId: 'req-range-info' });
 
   document.getElementById('req-count-dec').addEventListener('click', () => {
     state.reqModalCount = Math.max(0, state.reqModalCount - 1);

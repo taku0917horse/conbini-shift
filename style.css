@@ -1637,8 +1637,52 @@ html, body {
 #preset-buttons,
 #req-preset-buttons {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
+}
+
+/* 時間帯の帯（複数選択） */
+.band-picker,
+.band-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.band-btn.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* つながらない帯は押せない */
+.band-btn:disabled {
+  opacity: .35;
+  cursor: default;
+}
+
+.band-clear {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 6px 4px;
+}
+
+.band-extra-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 選んでいる範囲（例: 3:00〜9:00（6時間）） */
+.range-info {
+  margin-top: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--primary);
+  min-height: 1.2em;
 }
 
 .preset-btn {

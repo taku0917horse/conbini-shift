@@ -17,8 +17,9 @@ const ev = x => w.eval(x);
 check('区分', JSON.stringify(ev('CATEGORIES')) === '["明朝","早朝","日勤","夕勤","夜勤"]');
 check('絞り込みの表記', JSON.stringify(ev('FILTER_BANDS').map(b => b.label)) ===
   '["すべて","明朝 3–6","早朝 6–9","日勤 9–17","夕勤 17–22","夜勤 22–翌3"]');
-check('入力ボタン', JSON.stringify(ev('TIME_PRESETS').map(p => p.label)) ===
-  '["3–6","6–9","9–13","9–17","13–17","17–22","22–翌3"]');
+check('入力画面の帯ボタン（区分から作る）', JSON.stringify([...w.document.querySelectorAll('#preset-buttons .band-btn')].map(b => b.textContent)) ===
+  '["明朝 3–6","早朝 6–9","日勤 9–17","夕勤 17–22","夜勤 22–翌3"]');
+check('よく使う時間のボタン', JSON.stringify(ev('EXTRA_TIME_PRESETS').map(p => p.label)) === '["9–13","13–17"]');
 check('印刷ボタン', JSON.stringify(ev('PRINT_PRESETS').map(p => p.label)) ===
   '["全日","明朝 3–6","早朝 6–9","日勤 9–17","夕勤 17–22","夜勤 22–翌3"]');
 check('境目', JSON.stringify([...ev('BAND_BOUNDARY_MIN')]) === '[0,180,360,840,1140,1440]');
@@ -36,12 +37,11 @@ $('btn-emp-cancel').click();
 const bold = [...w.document.querySelectorAll('#time-labels .time-label-bold')].map(e => e.textContent);
 check('シフト表の太字の時刻', JSON.stringify(bold) === '["03:00","06:00","09:00","17:00","22:00","翌03:00"]');
 
-// --- 入力ボタン ---
-w.openShiftModal();
-[...w.document.querySelectorAll('#preset-buttons .preset-btn')].find(b => b.textContent === '22–翌3').click();
-check('22–翌3 → 22:00 / 03:00', $('shift-start').value === '22:00' && $('shift-end').value === '03:00');
-[...w.document.querySelectorAll('#preset-buttons .preset-btn')].find(b => b.textContent === '9–17').click();
-check('9–17 → 09:00 / 17:00', $('shift-start').value === '09:00' && $('shift-end').value === '17:00');
+// --- 入力ボタン（詳しい動きは band-picker.test.js） ---
+w.openShiftModal(); // 既定の 9:00〜17:00 で「日勤」が選ばれた状態で開く
+w.document.querySelector('#preset-buttons .band-clear').click();
+w.document.querySelector('#preset-buttons .band-btn[data-band="night"]').click();
+check('夜勤 → 22:00 / 03:00', $('shift-start').value === '22:00' && $('shift-end').value === '03:00');
 $('btn-shift-cancel').click();
 
 // --- 不足リストの絞り込み（重なる部分を表示） ---
