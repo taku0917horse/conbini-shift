@@ -432,6 +432,100 @@ function getThisWeekKey() { return getWeekKey(getBusinessDate(new Date())); }
 // 人数に数えるシフトか（当欠は数えない。仮＝募集中は数える）
 function isCounted(shift) { return !shift.absent; }
 
+// ========= 勤務の結合（時間帯ごとに分かれて入力された勤務を1つにまとめる） =========
+// 同じ従業員で、前の勤務の終了と次の勤務の開始が同じ時刻のものをまとめる。
+// - 同じ曜日の中はそのまままとめる
+// - 3:00 の日付の境目（前日の「〜翌3:00」と当日の「3:00〜」）は、前日の勤務として翌6:00までまとめる。
+//   テンプレート（wrapWeek: true）は日曜→月曜もつながる。週データの日曜と翌週の月曜は別のデータなのでまとめない
+// - 当欠の有無が違うもの、仮（募集中）の範囲が2つともあってつながらないものはまとめない
+// - 仮の範囲は引き継ぐ（両方にあってつながれば1つの範囲に）。休憩は合計。ID は開始が早い方を残す
+// 引数の配列・勤務は変更せず、{ shifts: まとめた後の配列, merged: 減った件数 } を返す
+const WEEK_MIN = DAYS.length * 1440;
+
+function mergeAdjacentShifts(shifts, { wrapWeek = false } = {}) {
+  // 週の中での通しの時刻（分）に直す
+  const items = shifts.map(s => {
+    const base = DAYS.indexOf(s.day) * 1440;
+    const tent = getTentativeRange(s);
+    return {
+      shift: s, base,
+      start: base + s.startMin,
+      end:   base + s.endMin,
+      tent:  tent ? { start: base + tent.start, end: base + tent.end } : null,
+    };
+  });
+
+  // a の直後に b をつなげられるなら、まとめた勤務を返す（つなげられなければ null）
+  const join = (a, b, shiftB) => {
+    if (a.shift.empId !== b.shift.empId) return null;
+    if (!!a.shift.absent !== !!b.shift.absent) return null;
+    const bStart = b.start + shiftB, bEnd = b.end + shiftB;
+    if (a.end !== bStart) return null;
+    if (bEnd - a.base > MAX_MIN) return null; // シフト表に描ける翌6:00まで
+    const bTent = b.tent && { start: b.tent.start + shiftB, end: b.tent.end + shiftB };
+    let tent = a.tent || bTent;
+    if (a.tent && bTent) {
+      if (a.tent.end !== bTent.start) return null; // 仮の範囲が2つになってしまう
+      tent = { start: a.tent.start, end: bTent.end };
+    }
+    return { ...a, end: bEnd, tent, breakMin: (a.breakMin ?? a.shift.breakMin ?? 0) + (b.shift.breakMin || 0), absorbed: [...(a.absorbed || []), b.shift] };
+  };
+
+  const removed = new Set();
+  const replaced = new Map(); // 残す勤務 → まとめた結果
+  const byEmp = new Map();
+  items.forEach(it => {
+    if (!byEmp.has(it.shift.empId)) byEmp.set(it.shift.empId, []);
+    byEmp.get(it.shift.empId).push(it);
+  });
+
+  byEmp.forEach(list => {
+    list.sort((x, y) => x.start - y.start);
+    const chains = [];
+    let cur = list[0];
+    for (let i = 1; i < list.length; i++) {
+      const joined = join(cur, list[i], 0);
+      if (joined) {
+        removed.add(list[i].shift);
+        cur = joined;
+      } else {
+        chains.push(cur);
+        cur = list[i];
+      }
+    }
+    if (cur) chains.push(cur);
+
+    // テンプレートは日曜の最後の勤務と月曜の最初の勤務もつながる
+    if (wrapWeek && chains.length > 1) {
+      const last = chains[chains.length - 1], first = chains[0];
+      const joined = join(last, first, WEEK_MIN);
+      if (joined) {
+        removed.add(first.shift);
+        (first.absorbed || []).forEach(s => removed.add(s));
+        chains[chains.length - 1] = joined;
+        chains.shift();
+      }
+    }
+    chains.filter(c => c.absorbed).forEach(c => replaced.set(c.shift, c));
+  });
+
+  const out = [];
+  shifts.forEach(s => {
+    if (removed.has(s)) return;
+    const c = replaced.get(s);
+    if (!c) { out.push(s); return; }
+    const { isTentative, ...rest } = s; // 旧形式の「仮」フラグは範囲に置き換える
+    out.push({
+      ...rest,
+      endMin: c.end - c.base,
+      breakMin: c.breakMin,
+      tentativeStart: c.tent ? c.tent.start - c.base : null,
+      tentativeEnd:   c.tent ? c.tent.end - c.base : null,
+    });
+  });
+  return { shifts: out, merged: shifts.length - out.length };
+}
+
 // 指定曜日の実効シフト（自日分 + 前日からの日またぎ分を当日座標に変換）
 // 週表示の月曜は前週の日曜から日またぎ分を持ってくる（fromPrevWeek で識別）
 function getEffectiveShiftsForDay(day, weekKey = state.currentWeek) {
@@ -2266,7 +2360,9 @@ function openEmpWeekModal(empId) {
 
     const dayEl = document.createElement('div');
     dayEl.className   = 'emp-week-day';
-    dayEl.textContent = srcShifts === state.templateShifts ? day : getDayTitle(day);
+    const withDate = srcShifts !== state.templateShifts;
+    dayEl.textContent = withDate ? getDayTitle(day) : day;
+    dayEl.classList.toggle('with-date', withDate); // 日付付き（9/21(月)）は列を広げる
     row.appendChild(dayEl);
 
     const shiftsEl = document.createElement('div');

@@ -1838,7 +1838,13 @@ html, body {
   padding-top: 1px;
 }
 
-.emp-week-shifts { flex: 1; }
+/* 週表示は「9/21(月)」「10/10(土)」のように日付付きになるので、時刻と重ならない幅を取る */
+.emp-week-day.with-date {
+  width: 5.6em;
+  white-space: nowrap;
+}
+
+.emp-week-shifts { flex: 1; min-width: 0; }
 
 .emp-week-entry {
   font-size: 14px;

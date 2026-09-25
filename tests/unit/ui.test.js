@@ -12,6 +12,22 @@ $('week-date-input').value = '2027-01-06';
 $('week-date-input').dispatchEvent(new w.Event('change'));
 check('今年以外は年を付ける', $('week-label').textContent === '2027/1/4〜1/10');
 
+// 1b. 従業員の週間スケジュール: 日付付きの列は広げる（時刻と重ならないように）
+w.__state.employees.push({ id: 'e1', name: '田中', color: '#2563eb', category: '日勤' });
+w.__state.weeks['2026-09-21'] = { createdAt: 'x', shifts: [] };
+w.eval("state.currentWeek = '2026-09-21'");
+w.openEmpWeekModal('e1');
+const dayCells = [...w.document.querySelectorAll('.emp-week-day')];
+check('週間スケジュール: 日付付きの列は広げる', dayCells.length === 7
+  && dayCells.every(c => c.classList.contains('with-date')) && dayCells[0].textContent === '9/21(月)');
+w.closeEmpWeekModal();
+w.eval("state.mode = 'template'");
+w.openEmpWeekModal('e1');
+check('週間スケジュール: テンプレートは曜日だけ（細い列）',
+  [...w.document.querySelectorAll('.emp-week-day')].every(c => !c.classList.contains('with-date') && c.textContent.length === 1));
+w.closeEmpWeekModal();
+w.eval("state.mode = 'week'");
+
 // 2. 共有・データタブの並び
 const order = [...$('print-scroll-area').children].map(e => e.id);
 check('並び: クラウド同期 → データ管理 → 印刷 → プレビュー',

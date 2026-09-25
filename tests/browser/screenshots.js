@@ -42,9 +42,12 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     await page.click('.req-subtab[data-subtab="rules"]');
     await shot('requirements-rules');
 
-    // 従業員タブ・勤務の入力画面
+    // 従業員タブ・週間スケジュール・勤務の入力画面
     await page.click('.nav-btn[data-view="employees"]');
     await shot('employees');
+    await page.evaluate(() => openEmpWeekModal('e2')); // 夜勤（日付の列と時刻が並ぶ）
+    await shot('employee-week');
+    await page.click('#btn-emp-week-close');
     await page.click('#btn-add-employee');
     await shot('employee-modal');
     await page.click('#btn-emp-cancel');
