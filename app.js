@@ -440,10 +440,11 @@ function isCounted(shift) { return !shift.absent; }
 //   テンプレート（wrapWeek: true）は日曜→月曜もつながる。週データの日曜と翌週の月曜は別のデータなのでまとめない
 // - 当欠の有無が違うもの、仮（募集中）の範囲が2つともあってつながらないものはまとめない
 // - 仮の範囲は引き継ぐ（両方にあってつながれば1つの範囲に）。休憩は合計。ID は開始が早い方を残す
-// 引数の配列・勤務は変更せず、{ shifts: まとめた後の配列, merged: 減った件数 } を返す
+// maxLength（分）を指定すると、まとめた結果がそれより長くなる結合はしない
+// 引数の配列・勤務は変更せず、{ shifts: まとめた後の配列, merged: 減った件数, joined: まとめてできた勤務 } を返す
 const WEEK_MIN = DAYS.length * 1440;
 
-function mergeAdjacentShifts(shifts, { wrapWeek = false } = {}) {
+function mergeAdjacentShifts(shifts, { wrapWeek = false, maxLength = null } = {}) {
   // 週の中での通しの時刻（分）に直す
   const items = shifts.map(s => {
     const base = DAYS.indexOf(s.day) * 1440;
@@ -463,6 +464,7 @@ function mergeAdjacentShifts(shifts, { wrapWeek = false } = {}) {
     const bStart = b.start + shiftB, bEnd = b.end + shiftB;
     if (a.end !== bStart) return null;
     if (bEnd - a.base > MAX_MIN) return null; // シフト表に描ける翌6:00まで
+    if (maxLength != null && bEnd - a.start > maxLength) return null;
     const bTent = b.tent && { start: b.tent.start + shiftB, end: b.tent.end + shiftB };
     let tent = a.tent || bTent;
     if (a.tent && bTent) {
@@ -511,25 +513,44 @@ function mergeAdjacentShifts(shifts, { wrapWeek = false } = {}) {
   });
 
   const out = [];
+  const joined = [];
   shifts.forEach(s => {
     if (removed.has(s)) return;
     const c = replaced.get(s);
     if (!c) { out.push(s); return; }
     const { isTentative, ...rest } = s; // 旧形式の「仮」フラグは範囲に置き換える
-    out.push({
+    const mergedShift = {
       ...rest,
       endMin: c.end - c.base,
       breakMin: c.breakMin,
       tentativeStart: c.tent ? c.tent.start - c.base : null,
       tentativeEnd:   c.tent ? c.tent.end - c.base : null,
-    });
+    };
+    out.push(mergedShift);
+    joined.push(mergedShift);
   });
-  return { shifts: out, merged: shifts.length - out.length };
+  return { shifts: out, merged: shifts.length - out.length, joined };
 }
 
 // 勤務の一覧をまとめて中身を入れ替える（配列そのものは同じものを使い続ける）→ まとめた箇所の数
 function mergeShiftList(list, wrapWeek) {
   const r = mergeAdjacentShifts(list, { wrapWeek });
+  if (r.merged > 0) list.splice(0, list.length, ...r.shifts);
+  return r.merged;
+}
+
+// 勤務を保存したときの結合。まとめて16時間を超える勤務ができるときは確認し、
+// 「キャンセル」なら16時間を超える結合だけ見送る（それ以外はまとめる）
+function mergeOnSave(list, wrapWeek) {
+  let r = mergeAdjacentShifts(list, { wrapWeek });
+  const long = r.joined.filter(s => s.endMin - s.startMin > LONG_SHIFT_MIN);
+  if (long.length > 0) {
+    const s    = long[0];
+    const emp  = findEmployee(s.empId);
+    const more = long.length > 1 ? `\n（ほか${long.length - 1}件）` : '';
+    const ok = confirm(`${emp ? getEmpLabel(emp) : ''}さんの勤務がつながって${formatDuration(s.endMin - s.startMin)}になります。まとめますか?${more}`);
+    if (!ok) r = mergeAdjacentShifts(list, { wrapWeek, maxLength: LONG_SHIFT_MIN });
+  }
   if (r.merged > 0) list.splice(0, list.length, ...r.shifts);
   return r.merged;
 }
@@ -2638,8 +2659,8 @@ function init() {
       const absent = isTemplateMode() ? {} : { absent: false };
       days.forEach(day => target.push({ id: uid(), empId, day, startMin, endMin, breakMin, tentativeStart, tentativeEnd, ...absent }));
     }
-    // 同じ人のつながった勤務（例: 3:00〜6:00 と 6:00〜9:00）は1つにまとめる
-    mergeShiftList(target, isTemplateMode());
+    // 同じ人のつながった勤務（例: 3:00〜6:00 と 6:00〜9:00）は1つにまとめる（16時間を超えるときは確認）
+    mergeOnSave(target, isTemplateMode());
     saveShifts();
     closeShiftModal();
     renderShiftChart();

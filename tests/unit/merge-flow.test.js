@@ -63,6 +63,55 @@ const modalOpen = $ => !$('modal-merge').classList.contains('hidden');
   check('テンプレート: 日曜→月曜もまとめる', brief(w.__state.templateShifts) === 'e1:日:1140-1620');
 }
 
+// ---- 保存時: まとめて16時間を超えるときは確認 ----
+{
+  const setup = () => {
+    const r = boot({ employees: [emp], templateShifts: [], weeks: { [W]: { createdAt: 'x', shifts: [] } }, requirements: [], shiftMergeDone: true });
+    r.confirms = [];
+    r.w.confirm = m => { r.confirms.push(m); return r.answer; };
+    r.add = (day, st, en) => {
+      r.w.openShiftModal(null, { day, startMin: 0, endMin: 60 });
+      r.$('shift-start').value = st; r.$('shift-end').value = en;
+      r.$('btn-shift-save').click();
+    };
+    r.list = () => r.w.__state.weeks[W].shifts;
+    return r;
+  };
+  {
+    const r = setup();
+    r.answer = true;
+    r.add('月', '03:00', '06:00');
+    r.add('月', '06:00', '09:00');
+    check('16時間以内の結合は確認なし', r.confirms.length === 0 && brief(r.list()) === 'e1:月:0-360');
+  }
+  {
+    const r = setup();
+    r.answer = true;
+    r.add('月', '09:00', '22:00');
+    r.add('月', '22:00', '06:00');
+    check('16時間を超える結合は確認（文言）', r.confirms.length === 1
+      && r.confirms[0] === '田中さんの勤務がつながって21時間になります。まとめますか?');
+    check('OK ならまとめる（9:00〜翌6:00）', brief(r.list()) === 'e1:月:360-1620');
+  }
+  {
+    const r = setup();
+    r.answer = false;
+    r.add('月', '09:00', '22:00');
+    r.add('月', '22:00', '06:00');
+    check('キャンセルならまとめずに保存（入力した勤務は残る）', brief(r.list()) === 'e1:月:1140-1620 e1:月:360-1140');
+  }
+  {
+    // キャンセルしても、16時間以内の結合はする（3:00〜9:00 はまとまり、9:00〜22:00 とはまとめない）
+    const r = setup();
+    r.answer = true;
+    r.add('月', '03:00', '06:00');
+    r.add('月', '09:00', '22:00');
+    r.answer = false;
+    r.add('月', '06:00', '09:00');
+    check('キャンセル: 16時間以内の結合だけする', r.confirms.length === 1 && brief(r.list()) === 'e1:月:0-360 e1:月:360-1140');
+  }
+}
+
 // ---- 起動時に一度だけ ----
 const splitSeed = () => ({
   employees: [emp, emp2],

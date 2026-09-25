@@ -110,4 +110,18 @@ check('週データの日曜と月曜（翌週）はまとめない',
 }
 check('何もなければそのまま', merge([]).merged === 0 && merge([]).shifts.length === 0);
 
+// ---- まとめてできた勤務（joined）と長さの上限（maxLength） ----
+{
+  const r = merge([sh('e1', '月', 0, 180), sh('e1', '月', 180, 360), sh('e2', '月', 0, 180)]);
+  check('joined: まとめてできた勤務だけ', r.joined.length === 1 && r.joined[0].startMin === 0 && r.joined[0].endMin === 360);
+}
+{
+  const pieces = () => [sh('e1', '月', 360, 1140), sh('e1', '月', 1140, 1620)]; // 9:00〜22:00 + 22:00〜翌6:00 = 21時間
+  check('maxLength なし: 21時間でもまとめる', merge(pieces()).merged === 1);
+  check('maxLength 16時間: 超える結合はしない', merge(pieces(), { maxLength: 960 }).merged === 0);
+  const r = merge([sh('e1', '月', 0, 180), sh('e1', '月', 180, 360), sh('e1', '月', 360, 1140)], { maxLength: 960 });
+  check('maxLength: 収まるところまではまとめる（3:00〜9:00 と 9:00〜22:00）', r.merged === 1
+    && brief(r) === 'e1:月:0-360 e1:月:360-1140');
+}
+
 finish();
