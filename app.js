@@ -644,13 +644,6 @@ function getEffectiveReqsForDay(day) {
 }
 
 // ========= 必要人数ロジック =========
-// 指定時刻（3:00起点分）における必要人数。重複ルールは最大値。未設定は0。
-function getRequiredCount(day, min) {
-  const rules = getEffectiveReqsForDay(day).filter(
-    r => r.startMin <= min && r.endMin > min
-  );
-  return rules.length === 0 ? 0 : Math.max(...rules.map(r => r.count));
-}
 
 // 隣の日（週をまたぐ場合は隣の週）。テンプレートは月〜日を循環
 function getAdjacentDay(day, weekKey, delta) {
@@ -727,10 +720,23 @@ function computeShortages(day, weekKey = state.currentWeek) {
 }
 
 // 印刷・画像用：不足区間を { startMin, endMin, isEmpty, short } の配列で返す（short = 不足人数）
+// 翌日の早朝（3:00〜6:00）の勤務・必要人数を、当日の「翌3:00〜翌6:00」の時刻に直したもの
+// （当日の表の下端は翌日の早朝と同じ時間。翌日 3:00 から入る人も数えるため）
+function getNextDayEarly(day, weekKey) {
+  const next  = getAdjacentDay(day, weekKey, 1);
+  const limit = MAX_MIN - 1440;
+  const shift = x => ({ ...x, startMin: x.startMin + 1440, endMin: Math.min(x.endMin + 1440, MAX_MIN) });
+  return {
+    shifts: (getTargetShifts(next.weekKey) || []).filter(x => x.day === next.day && x.startMin < limit).map(shift),
+    reqs:   state.requirements.filter(r => r.day === next.day && r.startMin < limit).map(shift),
+  };
+}
+
 function getShortageOverlays(day, weekKey = state.currentWeek) {
   if (!getTargetShifts(weekKey)) return [];  // 未作成の週
-  const dayShifts = getEffectiveShiftsForDay(day, weekKey).filter(isCounted);
-  const dayReqs   = getEffectiveReqsForDay(day);
+  const early     = getNextDayEarly(day, weekKey);
+  const dayShifts = [...getEffectiveShiftsForDay(day, weekKey), ...early.shifts].filter(isCounted);
+  const dayReqs   = [...getEffectiveReqsForDay(day), ...early.reqs];
   if (dayReqs.length === 0) return [];
   const bp = new Set([0, MAX_MIN]);
   dayShifts.forEach(s => { bp.add(s.startMin); bp.add(Math.min(s.endMin, MAX_MIN)); });
@@ -739,7 +745,8 @@ function getShortageOverlays(day, weekKey = state.currentWeek) {
   const segs = [];
   for (let i = 0; i < points.length - 1; i++) {
     const start = points[i], end = points[i + 1];
-    const req = getRequiredCount(day, start);
+    // 必要人数: 重なるルールは最大値（翌日の早朝のルールも含む）
+    const req = dayReqs.filter(r => r.startMin <= start && r.endMin > start).reduce((m, r) => Math.max(m, r.count), 0);
     if (req === 0) continue;
     const actual = dayShifts.filter(s => s.startMin <= start && s.endMin > start).length;
     if (actual < req) segs.push({ startMin: start, endMin: end, isEmpty: actual === 0, short: req - actual });
@@ -1127,7 +1134,8 @@ function renderShortageList() {
         .filter(a => a.absent && a.startMin < s.endMin && a.endMin > s.startMin)
         .map(a => findEmployee(a.empId))
         .filter(Boolean)
-        .map(getEmpLabel);
+        .map(getEmpLabel)
+        .filter((name, i, arr) => arr.indexOf(name) === i); // 同じ人の当欠が分かれていても1回
 
       const row = makeEl('div', 'shortage-row shortage-row-tappable');
       row.innerHTML = `
@@ -1632,7 +1640,7 @@ function collectHelpSlots(weekKey) {
       const absentNames = shifts
         .filter(a => a.absent && a.startMin < e && a.endMin > s)
         .map(a => empName(a.empId))
-        .filter(Boolean);
+        .filter((name, i, arr) => name && arr.indexOf(name) === i);
       slots.push({ date, startMin: s, endMin: e, count: seg.short, kind: seg.isEmpty ? 'empty' : 'short', absentNames, note: '' });
     }));
 

@@ -41,4 +41,49 @@ const H2 = w.eval('HOUR_H');
 const b3 = w.document.querySelector('#requirement-overlay .req-block');
 check('表示サイズ変更に追従', parseFloat(b3.style.top) === 6.5 * H2);
 
+// ---- 表の下端（翌3:00〜翌6:00）は、翌日の 3:00 から入る人も数える ----
+{
+  const e2 = { id: 'e2', name: '佐藤', color: '#16a34a', category: '夜勤' };
+  const req = d => ({ id: 'n' + d, day: d, startMin: 1140, endMin: 1620, count: 1 }); // 22:00〜翌6:00 に1人
+  const seed = (weeks, reqs) => ({ employees: [emp, e2], templateShifts: [], weeks, requirements: reqs, shiftMergeDone: true });
+  {
+    // 月 22:00〜翌3:00 は田中、火 3:00〜6:00 は佐藤
+    const { w: w2 } = boot(seed({ [W]: { createdAt: 'x', shifts: [
+      { id: 'a', empId: 'e1', day: '月', startMin: 1140, endMin: 1440, breakMin: 0 },
+      { id: 'b', empId: 'e2', day: '火', startMin: 0, endMin: 180, breakMin: 0 },
+    ] } }, [req('月')]));
+    const mon = w2.getShortageOverlays('月');
+    check('月の翌3:00〜翌6:00: 火の 3:00〜の人を数えて不足なし', !mon.some(o => o.endMin > 1440));
+    w2.document.querySelector('.day-tab[data-day="月"]').click();
+    check('月のシフト表の下端に「0人」を出さない', w2.document.querySelectorAll('#requirement-overlay .req-block').length === 0);
+  }
+  {
+    // 火の必要人数ルール（3:00〜6:00 に2人）も月の下端に反映する
+    const { w: w2 } = boot(seed({ [W]: { createdAt: 'x', shifts: [
+      { id: 'a', empId: 'e1', day: '月', startMin: 1140, endMin: 1620, breakMin: 0 },
+    ] } }, [req('月'), { id: 't', day: '火', startMin: 0, endMin: 180, count: 2 }]));
+    const tail = w2.getShortageOverlays('月').filter(o => o.startMin >= 1440);
+    check('月の翌3:00〜翌6:00: 火の早朝のルール（2人）も数える → あと1人', tail.length === 1 && tail[0].short === 1
+      && tail[0].startMin === 1440 && tail[0].endMin === 1620);
+  }
+  {
+    // 日曜の下端は翌週の月曜の早朝を数える（翌週が未作成なら数えない）
+    const shiftsW = [{ id: 'a', empId: 'e1', day: '日', startMin: 1140, endMin: 1440, breakMin: 0 }];
+    const nextMon = [{ id: 'b', empId: 'e2', day: '月', startMin: 0, endMin: 180, breakMin: 0 }];
+    const { w: w2 } = boot(seed({ [W]: { createdAt: 'x', shifts: shiftsW } }, [req('日')]));
+    check('日の下端: 翌週が未作成なら不足', w2.getShortageOverlays('日').some(o => o.startMin === 1440));
+    const { w: w3 } = boot(seed({ [W]: { createdAt: 'x', shifts: shiftsW }, '2026-09-28': { createdAt: 'x', shifts: nextMon } }, [req('日')]));
+    check('日の下端: 翌週の月曜 3:00〜の人を数える', !w3.getShortageOverlays('日').some(o => o.endMin > 1440));
+  }
+  {
+    // テンプレートは日曜の次が月曜
+    const { w: w2 } = boot({ employees: [emp, e2], weeks: {}, requirements: [req('日')], shiftMergeDone: true, templateShifts: [
+      { id: 'a', empId: 'e1', day: '日', startMin: 1140, endMin: 1440, breakMin: 0 },
+      { id: 'b', empId: 'e2', day: '月', startMin: 0, endMin: 180, breakMin: 0 },
+    ] });
+    w2.eval("state.mode = 'template'");
+    check('テンプレート: 日の下端は月の 3:00〜の人を数える', !w2.getShortageOverlays('日').some(o => o.endMin > 1440));
+  }
+}
+
 finish();
