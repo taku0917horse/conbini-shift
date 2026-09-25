@@ -38,8 +38,7 @@ const bold = [...w.document.querySelectorAll('#time-labels .time-label-bold')].m
 check('シフト表の太字の時刻', JSON.stringify(bold) === '["03:00","06:00","09:00","17:00","22:00","翌03:00"]');
 
 // --- 入力ボタン（詳しい動きは band-picker.test.js） ---
-w.openShiftModal(); // 既定の 9:00〜17:00 で「日勤」が選ばれた状態で開く
-w.document.querySelector('#preset-buttons .band-clear').click();
+w.openShiftModal();
 w.document.querySelector('#preset-buttons .band-btn[data-band="night"]').click();
 check('夜勤 → 22:00 / 03:00', $('shift-start').value === '22:00' && $('shift-end').value === '03:00');
 $('btn-shift-cancel').click();

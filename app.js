@@ -2284,30 +2284,27 @@ function createBandPicker({ wrapId, startId, endId, infoId }) {
     endIn.value   = minToTimeInput(endMin);
   };
 
-  // 押せるか: 選んでいない帯は選ぶと選べる組み合わせになるとき、選んでいる帯は範囲の両端のときだけ
-  const canToggle = i => {
-    if (sel.has(i)) {
-      if (sel.size === 1) return true;
-      const arc = bandArc(sel);
-      return !!arc && (i === arc.first || i === arc.last);
-    }
-    return !!bandArc(new Set([...sel, i]));
-  };
-
   const render = () => {
-    bandBtns.forEach((btn, i) => {
-      btn.classList.toggle('active', sel.has(i));
-      btn.disabled = !canToggle(i);
-    });
+    bandBtns.forEach((btn, i) => btn.classList.toggle('active', sel.has(i)));
     clearBtn.classList.toggle('hidden', sel.size === 0);
     const r = readTimeRange(startIn.value, endIn.value);
     info.textContent = r ? `${minToTimeShort(r.startMin)}〜${minToTimeShort(r.endMin)}（${formatDuration(r.endMin - r.startMin)}）` : '';
   };
 
+  // 帯を押したとき:
+  // - 選んでいない帯: つながれば範囲を広げる。つながらない（翌6:00を超える・24時間になる場合も）ならその帯だけに切り替える
+  // - 選んでいる帯: 範囲の両端なら外す。真ん中ならその帯だけに切り替える
   const toggle = i => {
-    if (!canToggle(i)) return;
-    const next = new Set(sel);
-    if (next.has(i)) next.delete(i); else next.add(i);
+    let next;
+    if (sel.has(i)) {
+      const arc = bandArc(sel);
+      if (sel.size === 1) next = new Set();
+      else if (arc && (i === arc.first || i === arc.last)) next = new Set([...sel].filter(x => x !== i));
+      else next = new Set([i]);
+    } else {
+      const extended = new Set([...sel, i]);
+      next = bandArc(extended) ? extended : new Set([i]);
+    }
     sel = next;
     const arc = bandArc(sel);
     if (arc) setInputs(arc.startMin, arc.endMin);
@@ -2410,8 +2407,8 @@ function openShiftModal(shiftId = null, prefill = null) {
       endIn.value   = minToTimeInput(prefill.endMin);
       renderDayToggles([prefill.day], false);
     } else {
-      startIn.value = '09:00';
-      endIn.value   = '17:00';
+      startIn.value = ''; // 新しい勤務は何も選んでいない状態で開く（帯を押すか時刻を入れる）
+      endIn.value   = '';
       renderDayToggles([state.currentDay], false);
     }
     breakIn.value = 0;

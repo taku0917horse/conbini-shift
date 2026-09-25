@@ -1655,12 +1655,6 @@ html, body {
   color: #fff;
 }
 
-/* つながらない帯は押せない */
-.band-btn:disabled {
-  opacity: .35;
-  cursor: default;
-}
-
 .band-clear {
   border: none;
   background: none;
